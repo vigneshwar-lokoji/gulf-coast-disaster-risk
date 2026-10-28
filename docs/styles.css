@@ -26,7 +26,7 @@
   --map-backdrop: #242934;
   --map-outline: #ffffff;
   --map-near: #3b4250;
-  --ramp: linear-gradient(90deg, #2d4a6b, #4da3ff, #ffd166, #ff7043);
+  --ramp: linear-gradient(90deg, #1b5e3f, #4caf5c, #ffc147, #ff523e);
 
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -56,7 +56,7 @@
   --map-backdrop: #d8dde4;
   --map-outline: #11161f;
   --map-near: #b6bdc8;
-  --ramp: linear-gradient(90deg, #a8c9e8, #3f86cc, #ef9a24, #c7301b);
+  --ramp: linear-gradient(90deg, #9acb96, #388e4e, #e6981a, #c02a1a);
 }
 
 * { box-sizing: border-box; }

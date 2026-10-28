@@ -14,8 +14,8 @@ const FEATURE_LABEL = {
 // panel; the light ramp starts pale so it reads against white. Both run
 // low -> high in the same hue order, so the legend means the same thing.
 const RAMPS = {
-  dark: [[45, 74, 107], [77, 163, 255], [255, 209, 102], [255, 112, 67]],
-  light: [[168, 201, 232], [63, 134, 204], [239, 154, 36], [199, 48, 27]],
+  dark: [[27, 94, 63], [76, 175, 92], [255, 193, 71], [255, 82, 62]],
+  light: [[154, 203, 150], [56, 142, 78], [230, 152, 26], [192, 42, 26]],
 };
 let STOPS = RAMPS.dark;
 
