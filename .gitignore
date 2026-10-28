@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+
+# The rainfall panel and FEMA/SVI source tables are large and not ours to
+# republish. Everything needed to run the live refresh is in refdata/.
+*.parquet
+
+# Raw upstream GeoJSON, 3.2 MB. stage4_geo.py re-downloads it on demand and
+# the projected result in docs/data/geo.json is what the site actually loads.
+artifacts/stage4/geo_src/
+
+# ...but these are small, derived, and the dashboard and the refresh job both
+# need them in a clean checkout.
+!refdata/*.csv
+!docs/data/*.json
+!artifacts/stage4/*.json
