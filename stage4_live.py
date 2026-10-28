@@ -254,8 +254,13 @@ def run(targets):
     PTS_CACHE.write_text(json.dumps(points))
     print(f"  {len(fc)} counties returned a forecast")
 
-    fc_last = max((d for days in fc.values() for d in days), default=obs_last)
+    fc_days = {d for days in fc.values() for d in days}
+    fc_last = max(fc_days, default=obs_last)
+    fc_first = min(fc_days, default=obs_last)
     print(f"  forecast reaches {fc_last}")
+    if fc_first > obs_last + timedelta(days=1):
+        print(f"  gap: nothing covers {obs_last + timedelta(days=1)} .. "
+              f"{fc_first - timedelta(days=1)}")
 
     def rain(fips, d):
         """Observed if GHCN has published it, otherwise the NWS forecast.
@@ -269,13 +274,19 @@ def run(targets):
         because a non-reporting county-day is a real zero in training too."""
         return d <= obs_last or d in fc.get(fips, {})
 
+    def sourced(d):
+        """Does either source carry this day at all? GHCN lags by about two
+        days and the NWS forecast starts at today, so there is a gap between
+        them that nothing covers."""
+        return d <= obs_last or d in fc_days
+
     out, near_out, skipped = {}, {}, []
     for target in targets:
         window = [target + timedelta(days=i) for i in range(3)]
         # A day with an incomplete 72h window is not predictable at all, which
         # is a different statement from "no county crossed its threshold". Drop
         # it rather than emit an empty day the dashboard would render as quiet.
-        if window[-1] > fc_last:
+        if not all(sourced(w) for w in window):
             skipped.append(target)
             continue
         rows, near = [], []
@@ -340,8 +351,9 @@ def run(targets):
                   + ("  FLAG" if r["p"] >= OP["threshold"] else ""))
 
     if skipped:
-        print(f"\nskipped {len(skipped)} day(s) past the forecast horizon: "
-              f"{skipped[0]} .. {skipped[-1]} (72h window extends beyond {fc_last})")
+        print(f"\nskipped {len(skipped)} unpredictable day(s): "
+              f"{skipped[0]} .. {skipped[-1]} (72h window reaches a day no "
+              f"source covers)")
 
     days_done = sorted(out)
     payload = {
