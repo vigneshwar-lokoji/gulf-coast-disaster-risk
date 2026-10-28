@@ -1,0 +1,45 @@
+name: refresh live forecast
+
+# The dashboard reads a static live.json. Without this job it freezes on the
+# day it was last generated, which is worse than having no live tab at all --
+# a stale forecast still looks current.
+
+on:
+  schedule:
+    - cron: "20 10 * * *"      # 10:20 UTC daily, after the NCEI morning load
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-live
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "pandas>=2.0"
+
+      - name: Rebuild the live window
+        run: python stage4_live.py
+
+      - name: Commit if the forecast changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/live.json artifacts/stage4/nws_points.json
+          if git diff --staged --quiet; then
+            echo "no change"
+          else
+            git commit -m "refresh live forecast $(date -u +%Y-%m-%d)"
+            git push
+          fi
