@@ -2,6 +2,10 @@
 
 **[Open the dashboard →](https://vigneshwar-lokoji.github.io/gulf-coast-disaster-risk/)**
 
+Presenting this? [PROJECT_EXPLAINER.docx](PROJECT_EXPLAINER.docx) is a 14-page
+walkthrough of the method, the results and the limits, including the questions
+an audience actually asks. Regenerate it with `python make_explainer.py`.
+
 Given that a Gulf Coast county has just exceeded its own 1-in-100-day rainfall
 threshold, how likely is a federal disaster declaration within the next 14 days?
 
