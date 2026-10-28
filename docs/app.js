@@ -199,11 +199,19 @@ let LIVE = null;
 
 let LV_DAYS = [];
 
-function showLiveDay(day) {
+function showLiveDay(day, requested) {
   const rows = LIVE.days[day] || [];
   const near = LIVE.near[day] || [];
   el("lv-label").textContent = day;
   el("lv-date").value = day;
+
+  // Snapping without saying so reads as a broken date picker.
+  el("lv-snap").innerHTML = requested && requested !== day
+    ? `<b>${requested}</b> has no prediction. Its three-day window needs a day
+       that neither published observations nor the forecast reach — GHCN lags
+       about two days and the forecast starts today, so there is a short gap
+       between them. Showing the nearest day with input, <b>${day}</b>.`
+    : "";
 
   const flagged = rows.filter((r) => r[1] >= LIVE.threshold).length;
   el("lv-meta").textContent = rows.length
@@ -227,7 +235,10 @@ function showLiveDay(day) {
 
   // A quiet day is a result, not a blank screen. Show how far the nearest
   // counties actually were, so silence is legible as a measurement.
-  el("lv-near").innerHTML = rows.length || !near.length ? "" :
+  el("lv-near").innerHTML = rows.length ? "" : !near.length ?
+    `<p class="quiet"><b>No rainfall input for this day.</b> Every county's
+       three-day window reaches a date that neither source covers, so there is
+       nothing to evaluate — not a quiet day, an unobservable one.</p>` :
     `<p class="quiet"><b>No county reached its rainfall threshold.</b>
        This is not a forecast of no rain — the model is conditional, and it has
        nothing to say about a county until that county exceeds its own
@@ -292,7 +303,7 @@ function wireLive() {
     const t = Date.parse(input.value);
     const near = LV_DAYS.reduce((a, b) =>
       Math.abs(Date.parse(b) - t) < Math.abs(Date.parse(a) - t) ? b : a);
-    showLiveDay(near);
+    showLiveDay(near, input.value);
   });
   el("lv-prev").addEventListener("click", () => step(-1));
   el("lv-next").addEventListener("click", () => step(1));
@@ -305,11 +316,26 @@ function wireLive() {
   });
 
   const active = LV_DAYS.filter((d) => LIVE.days[d].length).length;
+  const DAY = 864e5;
+  const gaps = LV_DAYS.flatMap((d, i) => {
+    if (!i) return [];
+    const a = Date.parse(LV_DAYS[i - 1]), b = Date.parse(d);
+    return b - a > DAY
+      ? [[new Date(a + DAY).toISOString().slice(0, 10),
+          new Date(b - DAY).toISOString().slice(0, 10)]]
+      : [];
+  });
   el("lv-range").innerHTML =
     `Selectable range <b>${LV_DAYS[0]}</b> to <b>${LV_DAYS[LV_DAYS.length - 1]}</b>
      — ${LV_DAYS.length} days, ${active} with at least one county over threshold.
      The forward end stops at ${LIVE.forecast_through}, where the NWS forecast
-     runs out; there is no rainfall input past it, so there is no prediction.`;
+     runs out; there is no rainfall input past it, so there is no prediction.` +
+    (gaps.length
+      ? ` Not selectable: ${gaps.map(([a, b]) =>
+            `<b>${a}</b>${a === b ? "" : ` to <b>${b}</b>`}`).join(", ")} —
+         published observations stop at ${LIVE.observed_through} and the
+         forecast starts today, leaving a short span nothing covers.`
+      : "");
 
   const stale = Math.round((Date.now() - Date.parse(LIVE.generated)) / 36e5);
   el("lv-provenance").textContent =
