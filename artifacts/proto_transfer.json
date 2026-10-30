@@ -1,0 +1,158 @@
+{
+  "splits": {
+    "train": [
+      2010,
+      2019
+    ],
+    "val": [
+      2020,
+      2022
+    ],
+    "test": [
+      2023,
+      2026
+    ]
+  },
+  "min_positives": 20,
+  "spatial": [
+    {
+      "state": "01",
+      "name": "Alabama",
+      "n_test": 53670,
+      "flood": {
+        "n_pos": 0,
+        "pooled_ap": null,
+        "transfer_ap": null,
+        "retention": null
+      },
+      "storm": {
+        "n_pos": 159,
+        "pooled_ap": 0.007914793706462411,
+        "transfer_ap": 0.006932163151408089,
+        "retention": 0.8758488734517482
+      }
+    },
+    {
+      "state": "12",
+      "name": "Florida",
+      "n_test": 60251,
+      "flood": {
+        "n_pos": 3,
+        "pooled_ap": 0.19748330765279917,
+        "transfer_ap": 0.19748330765279917,
+        "retention": null
+      },
+      "storm": {
+        "n_pos": 427,
+        "pooled_ap": 0.07024219044429336,
+        "transfer_ap": 0.04692076760391813,
+        "retention": 0.6679855412699489
+      }
+    },
+    {
+      "state": "22",
+      "name": "Louisiana",
+      "n_test": 35920,
+      "flood": {
+        "n_pos": 0,
+        "pooled_ap": null,
+        "transfer_ap": null,
+        "retention": null
+      },
+      "storm": {
+        "n_pos": 101,
+        "pooled_ap": 0.08465825870972377,
+        "transfer_ap": 0.05977147682378104,
+        "retention": 0.7060324383557838
+      }
+    },
+    {
+      "state": "28",
+      "name": "Mississippi",
+      "n_test": 44424,
+      "flood": {
+        "n_pos": 30,
+        "pooled_ap": 0.011310619686411127,
+        "transfer_ap": 0.011310619686411127,
+        "retention": 1.0
+      },
+      "storm": {
+        "n_pos": 99,
+        "pooled_ap": 0.04152315780989325,
+        "transfer_ap": 0.03852665996704019,
+        "retention": 0.9278355019006016
+      }
+    },
+    {
+      "state": "48",
+      "name": "Texas",
+      "n_test": 215561,
+      "flood": {
+        "n_pos": 267,
+        "pooled_ap": 0.06943365881712182,
+        "transfer_ap": 0.06943365580784695,
+        "retention": 0.9999999566597105
+      },
+      "storm": {
+        "n_pos": 132,
+        "pooled_ap": 0.020745835073450517,
+        "transfer_ap": 0.018197150936056356,
+        "retention": 0.8771471898638662
+      }
+    }
+  ],
+  "temporal": [
+    {
+      "year": 2023,
+      "n": 114972,
+      "flood": {
+        "n_pos": 3,
+        "ap": null
+      },
+      "storm": {
+        "n_pos": 183,
+        "ap": 0.022797914599578136
+      }
+    },
+    {
+      "year": 2024,
+      "n": 115208,
+      "flood": {
+        "n_pos": 162,
+        "ap": 0.00740177003130378
+      },
+      "storm": {
+        "n_pos": 684,
+        "ap": 0.06294035204558336
+      }
+    },
+    {
+      "year": 2025,
+      "n": 110120,
+      "flood": {
+        "n_pos": 78,
+        "ap": 0.21059781718650303
+      },
+      "storm": {
+        "n_pos": 21,
+        "ap": 0.004869903808854286
+      }
+    },
+    {
+      "year": 2026,
+      "n": 69526,
+      "flood": {
+        "n_pos": 57,
+        "ap": 0.06895479540418695
+      },
+      "storm": {
+        "n_pos": 30,
+        "ap": 0.07573459177363058
+      }
+    }
+  ],
+  "flood_retention": 0.9999999610375176,
+  "flood_states_scored": 2,
+  "storm_retention": 0.7662725675655994,
+  "storm_states_scored": 5
+}
