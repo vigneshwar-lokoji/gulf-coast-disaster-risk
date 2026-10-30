@@ -1,43 +1,86 @@
-const FEATURE_LABEL = {
-  ratio: "72h rain ÷ county threshold",
-  log_fwd3: "72h rainfall total (log)",
-  max1: "largest single-day total",
-  prev7: "rainfall, prior 7 days",
-  prev30: "rainfall, prior 30 days",
-  month_sin: "season (sin)",
-  month_cos: "season (cos)",
-  other_extent: "counties exceeding elsewhere, same day",
-  gulf_extent: "Gulf counties exceeding, same day",
-};
+/* Gulf Coast flood & hurricane risk — prototype dashboard.
+ *
+ * Risk comes precomputed from docs/data (export_proto.py, fetch_live.py).
+ * Weather and official warnings are fetched live in the browser from two
+ * keyless CORS-enabled APIs, so the whole thing runs on static hosting.
+ */
 
-// One ramp per theme. The dark ramp starts deep so it reads against a dark
-// panel; the light ramp starts pale so it reads against white. Both run
-// low -> high in the same hue order, so the legend means the same thing.
-const RAMPS = {
-  dark: [[27, 94, 63], [76, 175, 92], [255, 193, 71], [255, 82, 62]],
-  light: [[154, 203, 150], [56, 142, 78], [230, 152, 26], [192, 42, 26]],
-};
-let STOPS = RAMPS.dark;
+const SVGNS = "http://www.w3.org/2000/svg";
+const RAMP = ["#1b5e3f", "#4caf5c", "#ffc147", "#ff8a3d", "#ff3b2f"];
+const BANDS = ["Normal", "Slightly raised", "Elevated", "High", "Very high"];
+const HAZ_LABEL = { flood: "Flood", storm: "Hurricane / tropical storm" };
+// States the risk models and the FEMA event history actually cover.
+const MODELLED_STATES = new Set(["AL", "FL", "LA", "MS", "TX"]);
 
-const fmtPct = (x, d = 1) => (100 * x).toFixed(d) + "%";
 const el = (id) => document.getElementById(id);
+const pct = (x, d = 2) => (100 * x).toFixed(d) + "%";
+const fmtInt = (n) => n.toLocaleString();
 
-let M, R, G, DAYS, DECL_DAYS, PREV, N_YEARS, ALL_P, TOTAL_DECL;
+const addDays = (iso, n) => {
+  const t = new Date(iso + "T00:00:00Z");
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+};
+const dayName = (iso) =>
+  new Date(iso + "T00:00:00Z").toLocaleDateString(undefined, {
+    weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
+  });
 
-function colour(p, lo, hi) {
-  const t = Math.max(0, Math.min(1, (p - lo) / (hi - lo))) * (STOPS.length - 1);
-  const i = Math.min(STOPS.length - 2, Math.floor(t));
-  const f = t - i;
-  const c = STOPS[i].map((a, k) => Math.round(a + f * (STOPS[i + 1][k] - a)));
-  return `rgb(${c[0]},${c[1]},${c[2]})`;
+const S = {
+  mode: "live", haz: "flood", date: null, fips: null,
+  geo: null, meta: null, events: null, hist: null, live: null,
+  paths: new Map(), alertReq: 0, wxReq: 0,
+};
+
+// ------------------------------------------------------------------ data
+
+/** Sorted list of dates the current mode can show. */
+function dates() {
+  return Object.keys(S.mode === "live" ? S.live.days : S.hist.days).sort();
+}
+
+function dayRows(d) {
+  return (S.mode === "live" ? S.live.days : S.hist.days)[d] || [];
+}
+
+/* Live rows are [fips, p_flood, p_storm]; history rows carry the rainfall and
+ * the ground-truth active flags too. One shape for the rest of the code. */
+function rowObj(r) {
+  return {
+    fips: r[0], flood: r[1], storm: r[2],
+    fwd3: r.length > 3 ? r[3] : null,
+    ratio: r.length > 4 ? r[4] : null,
+    floodActive: r.length > 5 ? !!r[5] : false,
+    stormActive: r.length > 6 ? !!r[6] : false,
+  };
+}
+
+/** Nearest date we actually hold, so the picker never shows a blank map. */
+function snap(target) {
+  const ds = dates();
+  if (ds.includes(target)) return target;
+  const t = Date.parse(target);
+  return ds.reduce((a, b) =>
+    Math.abs(Date.parse(b) - t) < Math.abs(Date.parse(a) - t) ? b : a);
+}
+
+const county = (f) => S.meta.counties[f];
+const cname = (f) => {
+  const c = county(f);
+  return c ? `${c[0]}, ${c[1]}` : f;
+};
+
+/** 0-4 band index from a raw probability, against that hazard's quantiles. */
+function level(p, haz) {
+  const b = S.meta.bands[haz];
+  if (p >= b.p999) return 4;
+  if (p >= b.p99) return 3;
+  if (p >= b.p90) return 2;
+  if (p >= b.p50) return 1;
+  return 0;
 }
 
 // ------------------------------------------------------------------- map
-// Real county boundaries, pre-projected to SVG paths by stage4_geo.py (Albers
-// equal-area). The base layers are built once; each day only repaints the fill
-// of the counties that are actually in play.
-
-const SVGNS = "http://www.w3.org/2000/svg";
 
 function svgEl(tag, attrs) {
   const n = document.createElementNS(SVGNS, tag);
@@ -45,499 +88,550 @@ function svgEl(tag, attrs) {
   return n;
 }
 
-/** Builds the base layers once and returns a draw() that only repaints fills.
- *  Items are {fips, p, outline, title}. */
-function createMap(svgId, legendId, outlineLabel) {
-  const svg = el(svgId);
-  svg.setAttribute("viewBox", `0 0 ${G.width} ${G.height}`);
+function drawMap() {
+  const svg = el("map");
+  svg.setAttribute("viewBox", `0 0 ${S.geo.width} ${S.geo.height}`);
   svg.textContent = "";
 
-  // Lower-48 outlines, so the Gulf reads as part of the country.
-  const backdrop = svgEl("g", { class: "m-backdrop" });
-  for (const d of G.states) backdrop.appendChild(svgEl("path", { d }));
-  svg.appendChild(backdrop);
-
-  const reg = new Map();
   const land = svgEl("g", { class: "m-land" });
-  for (const [fips, d] of Object.entries(G.counties)) {
-    const c = M.counties[fips];
-    const p = svgEl("path", { d, class: c ? "in" : "out" });
+  for (const [fips, d] of Object.entries(S.geo.counties)) {
+    const p = svgEl("path", { d, class: "cty" });
+    p.dataset.fips = fips;
     const t = svgEl("title", {});
-    t.textContent = c
-      ? `${c.name}, ${c.state} — in scope, threshold ${c.threshold_mm.toFixed(0)} mm`
-      : "outside the modelled set";
+    t.textContent = cname(fips);
     p.appendChild(t);
-    if (c) reg.set(fips, { path: p, title: t });
+    p.addEventListener("click", () => selectCounty(fips));
+    S.paths.set(fips, { path: p, title: t });
     land.appendChild(p);
   }
   svg.appendChild(land);
 
-  const borders = svgEl("g", { class: "m-borders" });
-  for (const d of G.gulf_states) borders.appendChild(svgEl("path", { d }));
-  svg.appendChild(borders);
-
-  const outlines = svgEl("g", { class: "m-outlines" });
-  svg.appendChild(outlines);
-
-  el(legendId).innerHTML =
-    `<span>${fmtPct(0.02)}</span><span class="bar"></span>` +
-    `<span>${fmtPct(M.max_observed_probability)}</span>` +
-    `<span class="key"><i class="in"></i>in scope, below threshold</span>` +
-    `<span class="key"><i class="out"></i>not modelled</span>` +
-    `<span class="key"><i class="ring"></i>${outlineLabel}</span>`;
-
-  let last = [];
-  function draw(items) {
-    last = items;
-    const lo = 0.02, hi = M.max_observed_probability;
-    for (const [fips, { path, title }] of reg) {
-      path.style.fill = "";           // falls back to the themed CSS class
-      const c = M.counties[fips];
-      title.textContent = `${c.name}, ${c.state} — below threshold`;
-    }
-    outlines.textContent = "";
-    for (const it of items) {
-      const hit = reg.get(it.fips);
-      if (!hit) continue;
-      // Near-miss counties get a flat colour, never a point on the probability
-      // ramp — they have no probability, only a distance to the threshold.
-      hit.path.style.fill = it.near
-        ? getComputedStyle(document.documentElement).getPropertyValue("--map-near")
-        : colour(it.p, lo, hi);
-      hit.title.textContent = it.title;
-      if (it.outline) outlines.appendChild(svgEl("path", { d: G.counties[it.fips] }));
-    }
+  // State outlines over the counties, with the modelled states emphasised so
+  // the validated region reads as a region rather than as a colour accident.
+  for (const [key, cls] of [["states", "m-borders"], ["gulf_states", "m-gulf"]]) {
+    if (!S.geo[key]) continue;
+    const g = svgEl("g", { class: cls });
+    for (const d of S.geo[key]) g.appendChild(svgEl("path", { d }));
+    svg.appendChild(g);
   }
-  draw.repaint = () => draw(last);     // after a theme change
-  return draw;
+
+  el("legend").innerHTML =
+    `<span class="lg-t">${HAZ_LABEL[S.haz]} risk</span>` +
+    BANDS.map((b, i) =>
+      `<span class="lg"><i style="background:${RAMP[i]}"></i>${b}</span>`).join("") +
+    `<span class="lg"><i class="nd"></i>outside the modelled region</span>`;
 }
 
-// ----------------------------------------------------------------- theme
-
-function applyTheme(name) {
-  document.documentElement.setAttribute("data-theme", name);
-  STOPS = RAMPS[name];
-  try { localStorage.setItem("theme", name); } catch (e) { /* private mode */ }
-  document.querySelectorAll("[data-set-theme]").forEach((b) =>
-    b.classList.toggle("on", b.dataset.setTheme === name));
-  // Probability fills are inline styles, so they do not follow the stylesheet.
-  if (drawReplay) drawReplay.repaint();
-  if (drawLive) drawLive.repaint();
+function paintMap(byFips) {
+  for (const [fips, { path, title }] of S.paths) {
+    const r = byFips.get(fips);
+    const modelled = county(fips) && county(fips)[4];
+    path.classList.toggle("nodata", !r);
+    path.classList.toggle("sel", fips === S.fips);
+    if (!r) {
+      path.style.fill = "";
+      title.textContent = modelled
+        ? `${cname(fips)} — no risk computed for this date`
+        : `${cname(fips)} — outside the modelled region; click for live weather`
+          + " and warnings";
+      continue;
+    }
+    const lv = level(r[S.haz], S.haz);
+    path.style.fill = RAMP[lv];
+    const gt = S.haz === "flood" ? r.floodActive : r.stormActive;
+    title.textContent =
+      `${cname(fips)} — ${BANDS[lv]} (${pct(r[S.haz])})` +
+      (gt ? " · federal disaster active on this date" : "");
+  }
 }
 
-function wireTheme() {
-  let saved = null;
-  try { saved = localStorage.getItem("theme"); } catch (e) { /* private mode */ }
-  const prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
-  applyTheme(saved || (prefersLight ? "light" : "dark"));
-  document.querySelectorAll("[data-set-theme]").forEach((b) =>
-    b.addEventListener("click", () => applyTheme(b.dataset.setTheme)));
-}
+// ---------------------------------------------------------------- render
 
-let drawReplay, drawLive;
+function render() {
+  const ds = dates();
+  const inp = el("d-date");
+  inp.min = ds[0];
+  inp.max = ds[ds.length - 1];
+  inp.value = S.date;
 
-// ---------------------------------------------------------------- replay
+  const rows = dayRows(S.date).map(rowObj);
+  const byFips = new Map(rows.map((r) => [r.fips, r]));
+  el("legend").firstChild.textContent = `${HAZ_LABEL[S.haz]} risk`;
+  paintMap(byFips);
 
-function showDay(i) {
-  const day = DAYS[i];
-  const rows = R.days[day];
-  el("day-slider").value = i;
-  el("day-label").textContent = day;
-  const nd = rows.filter((r) => r[2]).length;
-  el("day-meta").textContent =
-    `${rows.length} count${rows.length === 1 ? "y" : "ies"} over threshold` +
-    ` · ${nd} declared within 14 days` +
-    ` · day ${i + 1} of ${DAYS.length}`;
+  el("date-note").innerHTML = S.mode === "live"
+    ? `Showing <b>${dayName(S.date)}</b> — scored from the live Open-Meteo
+       forecast pulled ${hoursAgo(S.live.generated)} h ago, covering
+       ${S.live.n_counties} counties.`
+    : `Showing <b>${dayName(S.date)}</b> — scored from observed station
+       rainfall. Past days are available around every real federal disaster
+       declaration and for the last 60 observed days
+       (through ${S.meta.observed_through}).`;
 
-  const tb = el("day-table").querySelector("tbody");
-  tb.innerHTML = rows
-    .map((r, k) => {
-      const c = M.counties[r[0]] || { name: r[0], state: "?" };
-      return `<tr>
-        <td class="num">${k + 1}</td>
-        <td>${c.name}, ${c.state}</td>
-        <td class="num">${fmtPct(r[1])}</td>
-        <td class="num">${r[3].toFixed(2)}&times;</td>
-        <td class="num">${r[4].toFixed(0)} mm</td>
-        <td><span class="pill ${r[2] ? "yes" : "no"}">${
-          r[2] ? "declared" : "no declaration"
-        }</span></td>
-      </tr>`;
-    })
-    .join("");
-  drawReplay(rows.map((r) => {
-    const c = M.counties[r[0]] || { name: r[0], state: "?" };
-    return {
-      fips: r[0], p: r[1], outline: !!r[2],
-      title: `${c.name}, ${c.state} — ${fmtPct(r[1])} · ${r[4].toFixed(0)} mm, ` +
-             `${r[3].toFixed(2)}× threshold · ` +
-             (r[2] ? "DECLARED" : "no declaration"),
-    };
-  }));
-}
+  el("map-foot").textContent =
+    `${rows.length} counties scored on this date, of ${S.meta.n_counties_mapped} ` +
+    `drawn. Shading is relative: "High" means this county-day sits in the top 1% ` +
+    `of all county-days, not that a disaster is likely.`;
 
-function wireReplay() {
-  const s = el("day-slider");
-  s.max = DAYS.length - 1;
-  s.addEventListener("input", () => showDay(+s.value));
-  el("prev-day").addEventListener("click", () =>
-    showDay(Math.max(0, +s.value - 1)));
-  el("next-day").addEventListener("click", () =>
-    showDay(Math.min(DAYS.length - 1, +s.value + 1)));
-  el("next-decl").addEventListener("click", () => {
-    const cur = +s.value;
-    const nxt = DECL_DAYS.find((i) => i > cur);
-    showDay(nxt === undefined ? DECL_DAYS[0] : nxt);
-  });
-  el("rp-period").textContent = R.period;
-  showDay(DECL_DAYS[0]);
-}
-
-// ------------------------------------------------------------------ live
-
-let LIVE = null;
-
-let LV_DAYS = [];
-
-function showLiveDay(day, requested) {
-  const rows = LIVE.days[day] || [];
-  const near = LIVE.near[day] || [];
-  el("lv-label").textContent = day;
-  el("lv-date").value = day;
-
-  // Snapping without saying so reads as a broken date picker.
-  el("lv-snap").innerHTML = requested && requested !== day
-    ? `<b>${requested}</b> has no prediction. Its three-day window needs a day
-       that neither published observations nor the forecast reach — GHCN lags
-       about two days and the forecast starts today, so there is a short gap
-       between them. Showing the nearest day with input, <b>${day}</b>.`
-    : "";
-
-  const flagged = rows.filter((r) => r[1] >= LIVE.threshold).length;
-  el("lv-meta").textContent = rows.length
-    ? `${rows.length} of ${LIVE.n_counties} counties over threshold · ` +
-      `${flagged} clear the ${fmtPct(LIVE.threshold, 0)} operating point`
-    : `0 of ${LIVE.n_counties} counties over threshold`;
-
-  el("lv-table").hidden = !rows.length;
-  el("lv-table").querySelector("tbody").innerHTML = rows.map((r, k) => {
-    const c = M.counties[r[0]];
-    return `<tr>
-      <td class="num">${k + 1}</td>
-      <td>${c.name}, ${c.state}</td>
-      <td class="num">${fmtPct(r[1])}</td>
-      <td class="num">${r[2].toFixed(0)} mm</td>
-      <td class="num">${r[3].toFixed(2)}&times;</td>
-      <td class="num">${r[4].toFixed(0)} mm</td>
-      <td class="num">${fmtPct(r[5], 0)}</td>
+  const top = rows.slice().sort((a, b) => b[S.haz] - a[S.haz]).slice(0, 12);
+  el("top-table").querySelector("tbody").innerHTML = top.map((r, i) => {
+    const lv = level(r[S.haz], S.haz);
+    return `<tr class="clickrow" data-fips="${r.fips}">
+      <td class="num">${i + 1}</td>
+      <td>${cname(r.fips)}</td>
+      <td class="num"><span class="dot" style="background:${
+        RAMP[level(r.flood, "flood")]}"></span>${pct(r.flood)}</td>
+      <td class="num"><span class="dot" style="background:${
+        RAMP[level(r.storm, "storm")]}"></span>${pct(r.storm)}</td>
+      <td class="num">${r.fwd3 == null ? "—" : r.fwd3.toFixed(0) + " mm"}</td>
     </tr>`;
   }).join("");
+  el("top-table").querySelectorAll(".clickrow").forEach((tr) =>
+    tr.addEventListener("click", () => selectCounty(tr.dataset.fips)));
 
-  // A quiet day is a result, not a blank screen. Show how far the nearest
-  // counties actually were, so silence is legible as a measurement.
-  el("lv-near").innerHTML = rows.length ? "" : !near.length ?
-    `<p class="quiet"><b>No rainfall input for this day.</b> Every county's
-       three-day window reaches a date that neither source covers, so there is
-       nothing to evaluate — not a quiet day, an unobservable one.</p>` :
-    `<p class="quiet"><b>No county reached its rainfall threshold.</b>
-       This is not a forecast of no rain — the model is conditional, and it has
-       nothing to say about a county until that county exceeds its own
-       1-in-100-day three-day total. Below that line there is no probability to
-       report, only a distance.</p>
-     <table class="nearlist">
-       <thead><tr><th>Closest counties</th><th class="num">72h rain</th>
-         <th class="num">Its threshold</th><th class="num">Reached</th></tr></thead>
-       <tbody>${near.map((n) => {
-         const c = M.counties[n[0]];
-         return `<tr><td>${c.name}, ${c.state}</td>
-           <td class="num">${n[1].toFixed(0)} mm</td>
-           <td class="num">${c.threshold_mm.toFixed(0)} mm</td>
-           <td class="num">${fmtPct(n[2], 0)}</td></tr>`;
-       }).join("")}</tbody>
-     </table>`;
+  if (S.fips) paintDetail(byFips.get(S.fips));
+}
 
-  el("lv-note").innerHTML = rows.length
-    ? `<b>Observed</b> is the share of the 30-day antecedent window that came from
-       published station data rather than forecast.
-       ${rows.every((r) => r[6])
-         ? "Forward rainfall on this day is observed, not forecast."
-         : "Forward rainfall is forecast by construction."}`
+const hoursAgo = (iso) => Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 36e5));
+
+// ---------------------------------------------------------------- detail
+
+function selectCounty(fips) {
+  if (!county(fips)) return;
+  S.fips = fips;
+  el("detail-empty").classList.add("hidden");
+  el("detail-body").classList.remove("hidden");
+  el("county-pick").value = fips;
+  render();
+  loadAlerts(fips);
+  loadWeather(fips);
+}
+
+function clearCounty() {
+  S.fips = null;
+  el("detail-empty").classList.remove("hidden");
+  el("detail-body").classList.add("hidden");
+  render();
+}
+
+function paintDetail(r) {
+  const fips = S.fips;
+  const c = county(fips);
+  el("d-name").textContent = `${c[0]}, ${c[1]}`;
+  el("d-sub").textContent = `FIPS ${fips} · ${c[2].toFixed(2)}, ${c[3].toFixed(2)}`;
+
+  if (!c[4]) {
+    el("d-outcome").innerHTML = MODELLED_STATES.has(c[1])
+      ? `<div class="outcome none">No weather station in this county in the
+         source data, so the model produces no risk for it. The live weather and
+         official warnings below are still real.</div>`
+      : `<div class="outcome none">Risk modelling currently covers the five Gulf
+         states; ${c[1]} is outside it. The live weather and official warnings
+         below are real and work nationwide.</div>`;
+  } else if (!r) {
+    el("d-outcome").innerHTML =
+      `<div class="outcome none">No model risk exported for this date. The
+       prototype ships risk only around real disaster dates and for the recent
+       window, to keep the download small.</div>`;
+  } else if (S.mode === "history" && (r.floodActive || r.stormActive)) {
+    const what = r.floodActive && r.stormActive ? "flood and storm"
+      : r.floodActive ? "flood" : "storm";
+    el("d-outcome").innerHTML =
+      `<div class="outcome hit">A federal ${what} disaster was active here on
+       this date. That is recorded ground truth, not a prediction — use it to
+       check what the model said going in.</div>`;
+  } else {
+    el("d-outcome").innerHTML = "";
+  }
+
+  for (const haz of ["flood", "storm"]) {
+    const p = r ? r[haz] : null;
+    const lv = p == null ? null : level(p, haz);
+    el(`rc-${haz}-band`).textContent = lv == null ? "no data" : BANDS[lv];
+    el(`rc-${haz}-band`).style.color = lv == null ? "" : RAMP[lv];
+    el(`rc-${haz}-num`).textContent = p == null ? "—" : pct(p);
+    const bar = el(`rc-${haz}-bar`);
+    bar.style.width = lv == null ? "0%" : (lv + 1) * 20 + "%";
+    bar.style.background = lv == null ? "" : RAMP[lv];
+  }
+
+  el("risk-expl").innerHTML = r
+    ? `These are probabilities that a federal ${""}flood or storm declaration
+       <b>begins</b> in this county within the next ${S.meta.horizon_days} days.
+       The base rate is ${pct(S.meta.flood.test_prevalence, 3)} for floods and
+       ${pct(S.meta.storm.test_prevalence, 3)} for storms, so a few percent is
+       already tens of times a normal day — the band label is the number to read,
+       not the raw percentage.`
     : "";
 
-  const items = rows.length
-    ? rows.map((r) => {
-        const c = M.counties[r[0]];
-        return {
-          fips: r[0], p: r[1], outline: r[1] >= LIVE.threshold,
-          title: `${c.name}, ${c.state} — ${fmtPct(r[1])} · ${r[2].toFixed(0)} mm, ` +
-                 `${r[3].toFixed(2)}× threshold · ${fmtPct(r[5], 0)} observed`,
-        };
-      })
-    : near.map((n) => {
-        const c = M.counties[n[0]];
-        return {
-          fips: n[0], near: true, outline: false,
-          title: `${c.name}, ${c.state} — ${n[1].toFixed(0)} mm, ` +
-                 `${fmtPct(n[2], 0)} of its ${c.threshold_mm.toFixed(0)} mm ` +
-                 `threshold · below threshold, no probability`,
-        };
-      });
-  drawLive(items);
+  eventList(fips);
 }
 
-function step(delta) {
-  const i = LV_DAYS.indexOf(el("lv-date").value);
-  const j = Math.max(0, Math.min(LV_DAYS.length - 1, (i < 0 ? 0 : i) + delta));
-  showLiveDay(LV_DAYS[j]);
+function eventList(fips) {
+  const evs = S.events[fips] || [];
+  if (!evs.length) {
+    el("d-events").innerHTML = MODELLED_STATES.has(county(fips)[1])
+      ? `<p class="quiet">No federal flood or storm disaster declarations on
+         record for this county since 2010.</p>`
+      : `<p class="quiet">Disaster history is loaded for the five Gulf states
+         only, so none is listed here. This county may still have declarations
+         on record.</p>`;
+    return;
+  }
+  el("d-events").innerHTML = evs.map((e) => `
+    <button class="evt" data-begin="${e.begin}">
+      <span class="evt-d">${dayName(e.begin)}${
+        e.end !== e.begin ? ` &rarr; ${dayName(e.end)}` : ""}</span>
+      <span class="pill ${e.hazard}">${
+        e.hazard === "both" ? "flood + storm" : e.hazard}</span>
+      <span class="evt-t">${e.type} — ${e.title}</span>
+    </button>`).join("");
+  el("d-events").querySelectorAll(".evt").forEach((b) =>
+    b.addEventListener("click", () => gotoDate(b.dataset.begin)));
 }
 
-function wireLive() {
-  LV_DAYS = Object.keys(LIVE.days).sort();
-  const input = el("lv-date");
-  input.min = LV_DAYS[0];
-  input.max = LV_DAYS[LV_DAYS.length - 1];
+function gotoDate(iso) {
+  setMode("history");
+  S.date = snap(iso);
+  render();
+  loadWeather(S.fips);
+  el("map").scrollIntoView({ behavior: "smooth", block: "center" });
+}
 
-  input.addEventListener("change", () => {
-    if (LIVE.days[input.value]) return showLiveDay(input.value);
-    // Snap to the nearest day we actually hold rather than showing nothing.
-    const t = Date.parse(input.value);
-    const near = LV_DAYS.reduce((a, b) =>
-      Math.abs(Date.parse(b) - t) < Math.abs(Date.parse(a) - t) ? b : a);
-    showLiveDay(near, input.value);
-  });
-  el("lv-prev").addEventListener("click", () => step(-1));
-  el("lv-next").addEventListener("click", () => step(1));
-  el("lv-active").addEventListener("click", () => {
-    const i = LV_DAYS.indexOf(el("lv-date").value);
-    for (let k = 1; k <= LV_DAYS.length; k++) {
-      const d = LV_DAYS[(i + k) % LV_DAYS.length];
-      if ((LIVE.days[d] || []).length) return showLiveDay(d);
+// ------------------------------------------------- live warnings (NWS)
+
+async function loadAlerts(fips) {
+  const c = county(fips);
+  const box = el("d-alerts");
+  box.innerHTML = `<p class="quiet">Loading from weather.gov&hellip;</p>`;
+  const req = ++S.alertReq;
+  try {
+    const url = `https://api.weather.gov/alerts/active?point=${
+      c[2].toFixed(4)},${c[3].toFixed(4)}`;
+    const res = await fetch(url, { headers: { Accept: "application/geo+json" } });
+    if (!res.ok) throw new Error("weather.gov " + res.status);
+    const js = await res.json();
+    if (req !== S.alertReq) return;
+    const fs = js.features || [];
+    if (!fs.length) {
+      box.innerHTML =
+        `<p class="ok">No active National Weather Service warnings for this
+         location right now. This is a real query against weather.gov, made
+         when you clicked the county.</p>`;
+      return;
     }
+    box.innerHTML = fs.slice(0, 6).map((f) => {
+      const p = f.properties;
+      const sev = (p.severity || "Unknown").toLowerCase();
+      return `<div class="alert sev-${sev}">
+        <div class="al-h">${p.event}
+          <span class="al-sev">${p.severity || "—"} · ${p.urgency || "—"}</span>
+        </div>
+        <div class="al-b">${p.headline || ""}</div>
+        ${p.ends ? `<div class="al-f">in force until ${
+          new Date(p.ends).toLocaleString()}</div>` : ""}
+      </div>`;
+    }).join("");
+  } catch (e) {
+    if (req !== S.alertReq) return;
+    box.innerHTML = `<p class="warn">Could not reach weather.gov (${e.message}).</p>`;
+  }
+}
+
+// ------------------------------------------------ weather (Open-Meteo)
+
+function card(day, w) {
+  const cls = w.precip >= 25 ? "wet" : w.precip >= 5 ? "damp" : "";
+  return `<div class="fcd ${cls}">
+    <div class="fcd-d">${dayName(day)}</div>
+    <div class="fcd-p">${w.precip == null ? "—" : w.precip.toFixed(1)} mm</div>
+    <div class="fcd-t">${w.tmax == null ? "—" : w.tmax.toFixed(0)}&deg; /
+      ${w.tmin == null ? "—" : w.tmin.toFixed(0)}&deg;C</div>
+    <div class="fcd-w">wind ${w.wind == null ? "—" : w.wind.toFixed(0)}${
+      w.gust ? ` · gust ${w.gust.toFixed(0)}` : ""} km/h</div>
+  </div>`;
+}
+
+async function loadWeather(fips) {
+  const c = county(fips);
+  const box = el("d-forecast");
+  const req = ++S.wxReq;
+
+  const cached = S.mode === "live" && S.live.weather[fips];
+  if (cached) {
+    const days = Object.keys(cached).sort();
+    box.innerHTML = days.map((d) => card(d, cached[d])).join("") +
+      `<p class="note">Open-Meteo forecast, pulled ${
+        hoursAgo(S.live.generated)} h ago — the same numbers the model was
+        scored on.</p>`;
+    return;
+  }
+
+  box.innerHTML = `<p class="quiet">Loading from Open-Meteo&hellip;</p>`;
+  const start = S.date;
+  const end = addDays(S.date, 3);
+  const past = Date.parse(end) < Date.now() - 6 * 864e5;
+  const base = past
+    ? "https://archive-api.open-meteo.com/v1/archive"
+    : "https://api.open-meteo.com/v1/forecast";
+  const q = new URLSearchParams({
+    latitude: c[2].toFixed(4), longitude: c[3].toFixed(4),
+    daily: "precipitation_sum,temperature_2m_max,temperature_2m_min," +
+           "wind_speed_10m_max,wind_gusts_10m_max",
+    timezone: "America/Chicago", start_date: start, end_date: end,
   });
-
-  const active = LV_DAYS.filter((d) => LIVE.days[d].length).length;
-  const DAY = 864e5;
-  const gaps = LV_DAYS.flatMap((d, i) => {
-    if (!i) return [];
-    const a = Date.parse(LV_DAYS[i - 1]), b = Date.parse(d);
-    return b - a > DAY
-      ? [[new Date(a + DAY).toISOString().slice(0, 10),
-          new Date(b - DAY).toISOString().slice(0, 10)]]
-      : [];
-  });
-  el("lv-range").innerHTML =
-    `Selectable range <b>${LV_DAYS[0]}</b> to <b>${LV_DAYS[LV_DAYS.length - 1]}</b>
-     — ${LV_DAYS.length} days, ${active} with at least one county over threshold.
-     The forward end stops at ${LIVE.forecast_through}, where the NWS forecast
-     runs out; there is no rainfall input past it, so there is no prediction.` +
-    (gaps.length
-      ? ` Not selectable: ${gaps.map(([a, b]) =>
-            `<b>${a}</b>${a === b ? "" : ` to <b>${b}</b>`}`).join(", ")} —
-         published observations stop at ${LIVE.observed_through} and the
-         forecast starts today, leaving a short span nothing covers.`
-      : "");
-
-  const stale = Math.round((Date.now() - Date.parse(LIVE.generated)) / 36e5);
-  el("lv-provenance").textContent =
-    `Observed rainfall published through ${LIVE.observed_through}; everything ` +
-    `after that is forecast. Generated ${stale} h ago by stage4_live.py — this ` +
-    `is a snapshot, not a live call from your browser.`;
-
-  // Open on something worth looking at rather than on day one of the window.
-  const best = LV_DAYS.reduce((a, b) =>
-    (LIVE.days[b].length ? LIVE.days[b][0][1] : 0) >
-    (LIVE.days[a].length ? LIVE.days[a][0][1] : 0) ? b : a);
-  showLiveDay(best);
+  try {
+    const res = await fetch(`${base}?${q}`);
+    if (!res.ok) throw new Error("Open-Meteo " + res.status);
+    const d = (await res.json()).daily;
+    if (req !== S.wxReq) return;
+    box.innerHTML = d.time.map((t, i) => card(t, {
+      precip: d.precipitation_sum[i], tmax: d.temperature_2m_max[i],
+      tmin: d.temperature_2m_min[i], wind: d.wind_speed_10m_max[i],
+      gust: d.wind_gusts_10m_max[i],
+    })).join("") +
+      `<p class="note">${past
+        ? "Open-Meteo ERA5 reanalysis — what actually happened on these days."
+        : "Open-Meteo forecast."} Queried live when you clicked.</p>`;
+  } catch (e) {
+    if (req !== S.wxReq) return;
+    box.innerHTML = `<p class="warn">Could not reach Open-Meteo (${e.message}).</p>`;
+  }
 }
 
-function liveUnavailable() {
-  el("live").innerHTML =
-    `<div class="panel-head"><h2>Beyond the training data</h2></div>
-     <p class="warn">No live snapshot found. Generate one with
-     <code>python stage4_live.py</code>.</p>`;
-}
+// ------------------------------------------------- transfer validation
 
-// -------------------------------------------------------------- explorer
+function transferCard() {
+  const t = S.meta.transfer;
+  const loss = (r) => 1 - r;
 
-function stats(thr) {
-  let flagged = 0, hits = 0;
-  for (const p of ALL_P) if (p >= thr) flagged++;
-  for (let i = 0; i < ALL_P.length; i++) if (ALL_P[i] >= thr && ALL_Y[i]) hits++;
-  const precision = flagged ? hits / flagged : NaN;
-  return {
-    thr, flagged, hits,
-    perYear: flagged / N_YEARS,
-    precision,
-    recall: hits / TOTAL_DECL,
-    lift: precision / PREV,
-  };
-}
-
-let ALL_Y;
-
-function renderExplorer() {
-  const thr = +el("thr-slider").value / 100;
-  el("thr-out").textContent = fmtPct(thr, 1);
-  const s = stats(thr);
-
-  el("ex-cards").innerHTML = [
-    ["Counties flagged / year", s.perYear.toFixed(0),
-      `${s.flagged} rows over ${N_YEARS} years`],
-    ["Precision", isNaN(s.precision) ? "—" : fmtPct(s.precision),
-      `${s.hits} of ${s.flagged} flagged were declared`],
-    ["Recall", fmtPct(s.recall),
-      `${s.hits} of ${TOTAL_DECL} declarations caught`],
-    ["Lift vs base rate", isNaN(s.lift) ? "—" : s.lift.toFixed(2) + "×",
-      `base rate ${fmtPct(PREV, 2)}`],
+  el("mc-transfer").innerHTML = [
+    ["Hurricane skill retained", pct(t.storm_retention, 0),
+      `in a state held out of training — a ${pct(loss(t.storm_retention), 0)} loss`],
+    ["Flood skill retained", pct(t.flood_retention, 0),
+      "no measurable loss moving to a new state"],
+    ["States tested", `${t.spatial.length}`,
+      "each removed from training entirely, then scored"],
   ].map(([k, v, n]) =>
-    `<div class="card"><div class="k">${k}</div><div class="v">${v}</div>
+    `<div class="card hero"><div class="k">${k}</div><div class="v">${v}</div>
      <div class="n">${n}</div></div>`).join("");
 
-  const grid = [0.03, 0.04, 0.05, 0.06, 0.08, 0.10, 0.12, 0.14];
-  const near = grid.reduce((a, b) =>
-    Math.abs(b - thr) < Math.abs(a - thr) ? b : a);
-  el("ex-table").querySelector("tbody").innerHTML = grid.map((t) => {
-    const r = stats(t);
-    return `<tr class="${t === near ? "here" : ""}">
-      <td class="num">${fmtPct(t, 0)}</td>
-      <td class="num">${r.perYear.toFixed(0)}</td>
-      <td class="num">${isNaN(r.precision) ? "—" : fmtPct(r.precision)}</td>
-      <td class="num">${fmtPct(r.recall)}</td>
-      <td class="num">${isNaN(r.lift) ? "—" : r.lift.toFixed(2) + "×"}</td>
+  el("transfer-read").innerHTML =
+    `<b>Read this as the headline number.</b> Drop a state out of training and
+     the hurricane model still delivers ${pct(t.storm_retention, 0)} of the
+     average precision it reaches on states it knows — it gives back
+     ${pct(loss(t.storm_retention), 0)}. The flood model gives back nothing.
+     Both are measured on identical rows, so the base rate cancels and the ratio
+     is the whole story.`;
+
+  const rows = t.spatial.filter((r) => r.storm.retention !== null);
+  el("mc-states").querySelector("tbody").innerHTML = rows.map((r) => {
+    const s = r.storm;
+    const cls = s.retention >= 0.85 ? "good" : s.retention >= 0.7 ? "" : "bad";
+    return `<tr>
+      <td>${r.name}</td>
+      <td class="num">${fmtInt(s.n_pos)}</td>
+      <td class="num">${s.pooled_ap.toFixed(5)}</td>
+      <td class="num">${s.transfer_ap.toFixed(5)}</td>
+      <td class="num ${cls}">${pct(s.retention, 0)}</td>
     </tr>`;
   }).join("");
 
-  el("ex-rows").textContent = R.n_rows.toLocaleString();
-  el("ex-prev").textContent = fmtPct(PREV, 2);
+  el("transfer-haz").innerHTML =
+    `Hurricane figures shown; flood onsets are too sparse in three of the five
+     states to score a state-level average precision (fewer than
+     ${t.min_positives} in the test window), so those cells would be noise
+     rather than measurement. <b>Why flood retains everything and hurricane does
+     not:</b> the flood model is one monotone feature, so its ranking cannot
+     change when it is refitted elsewhere — it carries no local thresholds to
+     lose. The gradient-boosted hurricane model buys
+     ${S.meta.storm.vs_best_baseline.toFixed(2)}× over its best
+     baseline at home and pays ${pct(loss(t.storm_retention), 0)} of it back on
+     unfamiliar ground. That trade is the design decision this project is
+     really about.`;
+
+  el("mc-years").querySelector("tbody").innerHTML = t.temporal.map((y) => `
+    <tr>
+      <td>${y.year}</td>
+      <td class="num">${y.flood.ap === null ? "—" : y.flood.ap.toFixed(5)}</td>
+      <td class="num">${fmtInt(y.flood.n_pos)}</td>
+      <td class="num">${y.storm.ap === null ? "—" : y.storm.ap.toFixed(5)}</td>
+      <td class="num">${fmtInt(y.storm.n_pos)}</td>
+    </tr>`).join("");
 }
 
 // ------------------------------------------------------------ model card
 
-function renderModelCard(bytes) {
-  const op = M.operating_points.find((o) => o.threshold === 0.10)
-    || M.operating_points[0];
+function modelCard() {
+  const m = S.meta;
   el("mc-cards").innerHTML = [
-    ["Average precision", M.test_ap.toFixed(4),
-      `${(M.test_ap / M.test_prevalence).toFixed(2)}× the base rate`],
-    ["Highest probability it can output", fmtPct(M.max_observed_probability),
-      "over the whole test period"],
-    ["Trained on", M.trained_on, "ranking model"],
-    ["Calibrated on", M.calibrated_on, "Platt scaling, held out"],
-    ["Evaluated on", M.evaluated_on, "never seen in training"],
-    ["Counties in scope", Object.keys(M.counties).length,
-      "AL, FL, LA, MS, TX only"],
+    ["Question asked", `${m.horizon_days}-day lead`, m.target],
+    ["Counties modelled", `${m.n_counties_modeled} / ${m.n_counties_mapped}`,
+      "only counties with a weather station in the source data"],
+    ["Train / test", `${m.splits.train[0]}-${m.splits.train[1]} / ` +
+      `${m.splits.test[0]}-${m.splits.test[1]}`, "split by year, never shuffled"],
+    ["Flood onsets", `${fmtInt(m.flood.n_train_pos)} train`,
+      `${fmtInt(m.flood.n_test_pos)} in test — the binding constraint on complexity`],
+    ["Storm lift", `${m.storm.lift_over_prevalence.toFixed(0)}×`,
+      "average precision over the base rate"],
+    ["Flood lift", `${m.flood.lift_over_prevalence.toFixed(0)}×`,
+      "average precision over the base rate"],
   ].map(([k, v, n]) =>
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div>
      <div class="n">${n}</div></div>`).join("");
 
-  const pooled = M.test_ap / M.test_prevalence;
-  el("mc-states").querySelector("tbody").innerHTML =
-    Object.entries(M.state_transfer_lift)
-      .sort((a, b) => b[1] - a[1])
-      .map(([st, lift]) => {
-        const read = lift >= 1.5 ? "transfers" :
-          lift >= 1.2 ? "weaker than pooled" : "does not transfer";
-        return `<tr><td>${st}</td><td class="num">${lift.toFixed(2)}×</td>
-          <td><span class="pill ${lift >= 1.5 ? "no" : "yes"}">${read}</span></td></tr>`;
-      }).join("");
+  el("mc-table").querySelector("tbody").innerHTML = ["flood", "storm"]
+    .map((haz) => {
+      const h = m[haz];
+      const bad = h.vs_best_baseline < 1.0;
+      return `<tr>
+        <td>${HAZ_LABEL[haz]}</td>
+        <td><code>${h.model}</code></td>
+        <td class="num">${h.test_ap.toFixed(5)}</td>
+        <td class="num">${pct(h.test_prevalence, 3)}</td>
+        <td class="num">${h.lift_over_prevalence.toFixed(1)}×</td>
+        <td class="num ${bad ? "bad" : ""}">${h.vs_best_baseline.toFixed(2)}×
+          <span class="dim">(${h.best_baseline})</span></td>
+      </tr>`;
+    }).join("");
 
-  const order = M.coef
-    .map((c, i) => [M.features[i], c])
-    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-  el("mc-coefs").querySelector("tbody").innerHTML = order.map(([f, c]) =>
-    `<tr><td>${FEATURE_LABEL[f] || f}</td>
-      <td class="num">${c >= 0 ? "+" : ""}${c.toFixed(3)}</td>
-      <td style="color:${c >= 0 ? "var(--hot)" : "var(--accent)"}">${
-        c >= 0 ? "raises risk" : "lowers risk"}</td></tr>`).join("");
+  transferCard();
 
   el("mc-limits").innerHTML = [
-    `<b>This is a ranked priority list, not a warning system.</b> The highest
-     probability the model has ever produced is ${fmtPct(M.max_observed_probability)}.
-     Most flagged counties will not be declared.`,
-    `<b>It answers a conditional question.</b> Rows exist only for county-days that
-     already exceeded the county's own 99th-percentile 72-hour rainfall. It does not
-     forecast rainfall, and it says nothing about counties below threshold.`,
-    `<b>Texas is the weak spot.</b> Held out of training, Texas lift falls to
-     ${M.state_transfer_lift.TX.toFixed(2)}× — close to no skill. Treat
-     Texas output as unvalidated.`,
-    `<b>Every within-state lift is below the pooled ${pooled.toFixed(2)}×.</b>
-     Part of the pooled figure is difference in base rates between states, not
-     discrimination within a state.`,
-    `<b>Social vulnerability indices added nothing.</b> Neither did population or
-     county area. Only rainfall severity and how widespread the storm was carried
-     signal.`,
-    `<b>Recommended operating point: ${fmtPct(op.threshold, 0)}</b> —
-     about ${op.flagged_per_year.toFixed(0)} county-alerts a year,
-     ${fmtPct(op.precision)} of which end in a declaration, catching
-     ${fmtPct(op.recall)} of all declarations.`,
+    `<b>The label is a bureaucratic event, not a hazard.</b> The target is a FEMA
+     disaster declaration, which depends on damage estimates and state requests.
+     A severe flood with no declaration counts as a negative.`,
+    `<b>Training rainfall is observed, not forecast.</b> Features use station
+     rainfall over the prediction window, which a real forecaster would not have.
+     The fix is to retrain on archived forecasts (GEFSv12 reforecast); until then
+     the lead-time claim is not operationally honest.`,
+    `<b>Risk covers ${m.n_counties_modeled} of the ${m.n_counties_mapped}
+     counties on the map.</b> Training is restricted to the five Gulf states,
+     and within them to counties with a rainfall station in the source data.
+     Every other county is drawn unshaded and serves live weather and official
+     warnings only. The held-out-state result below is the evidence for what
+     extending coverage would cost.`,
+    `<b>No soil moisture, no river gauges.</b> Antecedent wetness is proxied by
+     30- and 90-day rainfall, which is a weak substitute for catchment state.`,
+    `<b>No hurricane wind field.</b> Storm risk is driven by rainfall and season;
+     track, intensity and storm surge are absent entirely.`,
+    `<b>Only ${fmtInt(m.flood.n_test_pos)} flood and
+     ${fmtInt(m.storm.n_test_pos)} storm onsets in the test period.</b> Confidence
+     intervals on every metric here are correspondingly wide, and three of the
+     five states cannot support a state-level flood score at all.`,
   ].map((s) => `<li>${s}</li>`).join("");
 
+  el("proto-banner").innerHTML =
+    `Risk is produced by models trained on ${m.splits.train[0]}-${m.splits.train[1]}
+     station rainfall and federal disaster declarations across
+     ${m.n_counties_modeled} Gulf Coast counties, then validated on
+     ${m.splits.test[0]}-${m.splits.test[1]} — years the models never saw. Weather
+     and official warnings are fetched live from Open-Meteo and weather.gov when
+     you click a county. <b>Held-out-state skill retention:
+     ${pct(m.transfer.storm_retention, 0)} hurricane,
+     ${pct(m.transfer.flood_retention, 0)} flood.</b>`;
+
   el("ft-prov").textContent =
-    `Ranker trained ${M.trained_on}, calibrated ${M.calibrated_on}, ` +
-    `evaluated ${M.evaluated_on}.`;
-  el("ft-size").textContent = `${Math.round(bytes / 1024)} KB`;
+    `Risk: ${m.flood.model} (flood) and ${m.storm.model} (storm), trained on ` +
+    `station rainfall + FEMA declarations, observed through ${m.observed_through}. ` +
+    `Exported ${m.generated}. Warnings: api.weather.gov. Weather: Open-Meteo.`;
 }
 
-// ----------------------------------------------------------------- boot
+// ------------------------------------------------------------------ wire
 
-function wireTabs() {
-  document.querySelectorAll(".tab").forEach((t) => {
-    t.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach((x) =>
-        x.classList.toggle("active", x === t));
-      document.querySelectorAll(".panel").forEach((p) =>
-        p.classList.toggle("hidden", p.id !== t.dataset.panel));
-    });
+function setMode(mode) {
+  S.mode = mode;
+  document.querySelectorAll("#mode-seg button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.mode === mode));
+  S.date = snap(S.date || dates()[0]);
+}
+
+function wire() {
+  document.querySelectorAll("#mode-seg button").forEach((b) =>
+    b.addEventListener("click", () => {
+      setMode(b.dataset.mode);
+      render();
+      if (S.fips) loadWeather(S.fips);
+    }));
+
+  document.querySelectorAll("#haz-seg button").forEach((b) =>
+    b.addEventListener("click", () => {
+      S.haz = b.dataset.haz;
+      document.querySelectorAll("#haz-seg button").forEach((x) =>
+        x.classList.toggle("on", x === b));
+      render();
+    }));
+
+  el("d-date").addEventListener("change", (e) => {
+    S.date = snap(e.target.value);
+    render();
+    if (S.fips) loadWeather(S.fips);
   });
+
+  const step = (n) => {
+    const ds = dates();
+    const i = ds.indexOf(S.date);
+    S.date = ds[Math.max(0, Math.min(ds.length - 1, (i < 0 ? 0 : i) + n))];
+    render();
+    if (S.fips) loadWeather(S.fips);
+  };
+  el("d-prev").addEventListener("click", () => step(-1));
+  el("d-next").addEventListener("click", () => step(1));
+
+  el("d-close").addEventListener("click", clearCounty);
+  el("county-pick").addEventListener("change", (e) => selectCounty(e.target.value));
 }
 
-async function main() {
-  // live.json is rewritten daily by the refresh job, so a cached copy would
-  // silently show yesterday's forecast. Revalidate rather than trust the cache.
-  const get = (f) => fetch(f, { cache: "no-cache" });
-  const [mRes, rRes, gRes, lRes] = await Promise.all([
-    get("data/model.json"), get("data/replay.json"), get("data/geo.json"),
-    get("data/live.json").catch(() => null),
+function fillPicker() {
+  const all = Object.entries(S.meta.counties)
+    .sort((a, b) => (a[1][1] + a[1][0]).localeCompare(b[1][1] + b[1][0]));
+  const opt = ([f, c]) => `<option value="${f}">${c[0]}, ${c[1]}</option>`;
+  const group = (label, rows) =>
+    `<optgroup label="${label}">${rows.map(opt).join("")}</optgroup>`;
+  el("county-pick").innerHTML =
+    `<option value="">— choose —</option>` +
+    group("Risk modelled", all.filter(([, c]) => c[4])) +
+    group("Weather & warnings only", all.filter(([, c]) => !c[4]));
+}
+
+function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem("theme"); } catch (e) { /* private mode */ }
+  const prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+  const apply = (name) => {
+    document.documentElement.setAttribute("data-theme", name);
+    try { localStorage.setItem("theme", name); } catch (e) { /* private mode */ }
+    document.querySelectorAll("[data-set-theme]").forEach((b) =>
+      b.classList.toggle("on", b.dataset.setTheme === name));
+  };
+  apply(saved || (prefersLight ? "light" : "dark"));
+  document.querySelectorAll("[data-set-theme]").forEach((b) =>
+    b.addEventListener("click", () => apply(b.dataset.setTheme)));
+}
+
+async function boot() {
+  const get = async (f) => {
+    const r = await fetch(f, { cache: "no-cache" });
+    if (!r.ok) throw new Error(`${f}: ${r.status}`);
+    return r.json();
+  };
+  [S.geo, S.meta, S.events, S.hist, S.live] = await Promise.all([
+    get("data/geo.json"), get("data/meta.json"), get("data/events.json"),
+    get("data/history.json"), get("data/live.json"),
   ]);
-  const mText = await mRes.text();
-  M = JSON.parse(mText);
-  R = await rRes.json();
-  G = await gRes.json();
-  LIVE = lRes && lRes.ok ? await lRes.json() : null;
 
-  DAYS = Object.keys(R.days).sort();
-  DECL_DAYS = DAYS.map((d, i) => (R.days[d].some((r) => r[2]) ? i : -1))
-    .filter((i) => i >= 0);
-  N_YEARS = new Set(DAYS.map((d) => d.slice(0, 4))).size;
-  ALL_P = [];
-  ALL_Y = [];
-  for (const d of DAYS) for (const r of R.days[d]) { ALL_P.push(r[1]); ALL_Y.push(r[2]); }
-  TOTAL_DECL = R.n_declared;
-  PREV = TOTAL_DECL / R.n_rows;
-
-  el("headline-caveat").textContent =
-    `The model tops out at ${fmtPct(M.max_observed_probability)}. It is a ranked ` +
-    `priority list for ${Object.keys(M.counties).length} Gulf Coast counties, not a ` +
-    `warning system — and Texas output is unvalidated.`;
-
-  drawReplay = createMap("map", "legend", "declared");
-  wireTabs();
-  wireReplay();
-  if (LIVE) {
-    drawLive = createMap("lv-map", "lv-legend",
-      `flagged at ${fmtPct(LIVE.threshold, 0)}`);
-    wireLive();
-  } else {
-    liveUnavailable();
-  }
-  el("thr-slider").addEventListener("input", renderExplorer);
-  renderExplorer();
-  renderModelCard(mText.length);
-  wireTheme();
+  initTheme();
+  drawMap();
+  fillPicker();
+  modelCard();
+  setMode("live");
+  S.date = dates()[0];
+  wire();
+  render();
 }
 
-main().catch((e) => {
+boot().catch((e) => {
   document.body.insertAdjacentHTML("afterbegin",
-    `<p class="warn">Failed to load model data: ${e.message}</p>`);
+    `<p class="warn">Failed to load dashboard data: ${e.message}</p>`);
   throw e;
 });
