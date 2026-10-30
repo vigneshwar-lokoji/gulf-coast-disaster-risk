@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+.claude/
 
 # The rainfall panel and FEMA/SVI source tables are large and not ours to
 # republish. Everything needed to run the live refresh is in refdata/.
