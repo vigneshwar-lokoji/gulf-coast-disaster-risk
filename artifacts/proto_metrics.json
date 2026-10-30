@@ -1,0 +1,151 @@
+{
+  "splits": {
+    "train": [
+      2010,
+      2019
+    ],
+    "val": [
+      2020,
+      2022
+    ],
+    "test": [
+      2023,
+      2026
+    ]
+  },
+  "horizon_days": 3,
+  "target": "a FEMA flood/storm incident begins in this county within the next 3 days",
+  "n_rows": 1986871,
+  "n_counties": 356,
+  "features": {
+    "flood": [
+      "ratio_fwd3"
+    ],
+    "storm": [
+      "prcp",
+      "prcp_max_stn",
+      "prcp_prev3",
+      "prcp_prev7",
+      "prcp_prev30",
+      "prcp_prev60",
+      "prcp_fwd1",
+      "prcp_fwd3",
+      "prcp_fwd3_max",
+      "ratio_prev3",
+      "ratio_fwd3",
+      "ratio_prev30",
+      "log_fwd3",
+      "tmax",
+      "tmin",
+      "month_sin",
+      "month_cos",
+      "hurricane_season",
+      "lat",
+      "lon",
+      "pop_density"
+    ]
+  },
+  "flood": {
+    "model": "logistic_1feature",
+    "features": [
+      "ratio_fwd3"
+    ],
+    "test_ap": 0.056475114103915966,
+    "test_prevalence": 0.0007320179783615485,
+    "lift_over_prevalence": 77.14990037583821,
+    "best_baseline": "single_ratio_fwd3",
+    "best_baseline_ap": 0.05647513370079461,
+    "vs_best_baseline": 0.9999996529998717,
+    "n_test_pos": 300,
+    "n_train_pos": 1517,
+    "baselines": {
+      "constant_prevalence": 0.0007320179783615485,
+      "single_ratio_fwd3": 0.05647513370079461,
+      "single_prcp_fwd3": 0.023385653262953582,
+      "single_prcp_fwd3_max": 0.022884859640918572,
+      "single_prcp_prev30": 0.0008952438832555182,
+      "single_ratio_prev3": 0.001600440608241425,
+      "single_pop_density": 0.0006538584237451678,
+      "month_climatology": 0.002874663635183151
+    }
+  },
+  "storm": {
+    "model": "xgboost_monotone",
+    "features": [
+      "prcp",
+      "prcp_max_stn",
+      "prcp_prev3",
+      "prcp_prev7",
+      "prcp_prev30",
+      "prcp_prev60",
+      "prcp_fwd1",
+      "prcp_fwd3",
+      "prcp_fwd3_max",
+      "ratio_prev3",
+      "ratio_fwd3",
+      "ratio_prev30",
+      "log_fwd3",
+      "tmax",
+      "tmin",
+      "month_sin",
+      "month_cos",
+      "hurricane_season",
+      "lat",
+      "lon",
+      "pop_density"
+    ],
+    "test_ap": 0.039674267741711254,
+    "test_prevalence": 0.0022399750137863388,
+    "lift_over_prevalence": 17.71192423912261,
+    "best_baseline": "single_prcp_fwd3",
+    "best_baseline_ap": 0.02315289954491676,
+    "vs_best_baseline": 1.713576637118083,
+    "n_test_pos": 918,
+    "n_train_pos": 2433,
+    "baselines": {
+      "constant_prevalence": 0.0022399750137863388,
+      "single_ratio_fwd3": 0.014638844749722265,
+      "single_prcp_fwd3": 0.02315289954491676,
+      "single_prcp_fwd3_max": 0.02227187997756569,
+      "single_prcp_prev30": 0.00592309935348658,
+      "single_ratio_prev3": 0.002701341363977624,
+      "single_pop_density": 0.0032434848089598323,
+      "month_climatology": 0.0037493129649043668
+    },
+    "top_features": [
+      [
+        "log_fwd3",
+        0.3614
+      ],
+      [
+        "prcp_fwd3",
+        0.1833
+      ],
+      [
+        "prcp_prev60",
+        0.0627
+      ],
+      [
+        "prcp_fwd3_max",
+        0.05
+      ],
+      [
+        "ratio_fwd3",
+        0.0412
+      ],
+      [
+        "month_sin",
+        0.0337
+      ],
+      [
+        "lon",
+        0.0272
+      ],
+      [
+        "month_cos",
+        0.0263
+      ]
+    ],
+    "best_iteration": 23
+  }
+}
