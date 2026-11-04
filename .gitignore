@@ -5,11 +5,32 @@ __pycache__/
 
 # The rainfall panel and FEMA/SVI source tables are large and not ours to
 # republish. Everything needed to run the live refresh is in refdata/.
+# The `.bak` suffix is spelled out because `*.parquet` does not match it, and
+# the one file that carries it is the 59 MB panel.
 *.parquet
+*.parquet.bak
+artifacts/noaa/
 
 # Raw upstream GeoJSON, 3.2 MB. stage4_geo.py re-downloads it on demand and
 # the projected result in docs/data/geo.json is what the site actually loads.
 artifacts/stage4/geo_src/
+
+# Sealed runs are the audit trail, so a run directory is committed -- minus the
+# transformer weights. Nothing the site serves reads a .ckpt: the dashboard
+# takes the TFT's numbers from the run's results JSON, and the daily refresh
+# scores with the boosters, which are small enough to keep. Smoke runs and the
+# run zip are reproducible noise.
+artifacts/runs/*/models/*.ckpt
+artifacts/runs/*-smoke/
+artifacts/runs/*.zip
+lightning_logs/
+
+# Written by whichever script ran last, with no hash tying them to a panel.
+# v2_models.py reads from a run directory precisely to avoid these.
+artifacts/models/
+artifacts/results/
+artifacts/plots/
+artifacts/proto_xgb_*.json
 
 # ...but these are small, derived, and the dashboard and the refresh job both
 # need them in a clean checkout.
