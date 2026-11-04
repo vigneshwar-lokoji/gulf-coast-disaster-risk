@@ -9,6 +9,7 @@ Writes docs/data/live.json.
 
 import json
 import pathlib
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -16,7 +17,7 @@ import pandas as pd
 import requests
 
 from config import OUT_DIR
-from proto_models import FLOOD_FEATS, STORM_FEATS, load_scorers
+from v2_models import FEATS, LEADS, load_lead_scorers, load_scorers, provenance
 
 API = "https://api.open-meteo.com/v1/forecast"
 PAST = 92
@@ -24,37 +25,70 @@ FWD = 4
 STATIC = ["lat", "lon", "n_stations", "AREA_SQMI", "E_TOTPOP", "RPL_THEME1",
           "RPL_THEME4", "RPL_THEMES", "pop_density", "p95_prev3", "p95_fwd3",
           "mean_prev30"]
+STATIC_CSV = pathlib.Path(__file__).parent / "refdata" / "county_static.csv"
 
 
-def county_static(panel):
-    return (
-        panel.sort_values("DATE")
-        .groupby("county_fips")[STATIC]
-        .last()
-        .reset_index()
+def county_static(rebuild=False):
+    """Per-county constants the live features need.
+
+    These do not change between runs, so they are cached to a small CSV. The
+    daily refresh runs from a clean checkout where the 60 MB panel is not
+    committed, and this table was the only thing it needed out of it.
+
+    `p95_prev3`, `p95_fwd3` and `mean_prev30` are per-county rainfall
+    climatology read off the panel, and they move when the panel is rebuilt.
+    They are the denominators of the ratio features, which carry the most weight
+    in the flood model, so a cache from an older panel would quietly score every
+    county against the wrong normal. Pass `rebuild=True` after a panel change.
+    """
+    if STATIC_CSV.exists() and not rebuild:
+        cs = pd.read_csv(STATIC_CSV, dtype={"county_fips": str})
+        cs["county_fips"] = cs["county_fips"].str.zfill(5)
+        return cs
+
+    panel = pd.read_parquet(
+        OUT_DIR / "daily_panel.parquet", columns=["county_fips", "DATE"] + STATIC
     )
+    cs = (
+        panel.sort_values("DATE").groupby("county_fips")[STATIC].last().reset_index()
+    )
+    STATIC_CSV.parent.mkdir(parents=True, exist_ok=True)
+    cs.to_csv(STATIC_CSV, index=False)
+    print(f"cached {len(cs)} county constants to {STATIC_CSV}")
+    return cs
 
 
 def fetch(row):
-    try:
-        r = requests.get(
-            API,
-            params={
-                "latitude": round(row.lat, 4),
-                "longitude": round(row.lon, 4),
-                "daily": "precipitation_sum,temperature_2m_max,temperature_2m_min,"
-                         "wind_speed_10m_max,wind_gusts_10m_max",
-                "timezone": "America/Chicago",
-                "past_days": PAST,
-                "forecast_days": FWD,
-            },
-            timeout=30,
-        )
-        r.raise_for_status()
-        d = r.json()["daily"]
-        return row.county_fips, d
-    except Exception as e:
-        return row.county_fips, None
+    """One county's rainfall history and forecast, retried on a soft failure.
+
+    Open-Meteo throttles a burst of a few hundred requests, so roughly one
+    county in twelve fails on the first attempt. Without the retry those
+    counties drop off the map for the whole day with no visible reason, which
+    reads as missing coverage rather than as a rate limit.
+    """
+    err = None
+    for attempt in range(4):
+        if attempt:
+            time.sleep(1.5 * 2 ** (attempt - 1))
+        try:
+            r = requests.get(
+                API,
+                params={
+                    "latitude": round(row.lat, 4),
+                    "longitude": round(row.lon, 4),
+                    "daily": "precipitation_sum,temperature_2m_max,temperature_2m_min,"
+                             "wind_speed_10m_max,wind_gusts_10m_max",
+                    "timezone": "America/Chicago",
+                    "past_days": PAST,
+                    "forecast_days": FWD,
+                },
+                timeout=30,
+            )
+            r.raise_for_status()
+            return row.county_fips, r.json()["daily"], None
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
+    return row.county_fips, None, err
 
 
 def build_rows(fips, daily, static, feats):
@@ -112,44 +146,56 @@ def build_rows(fips, daily, static, feats):
     return out
 
 
-def main():
-    panel = pd.read_parquet(
-        OUT_DIR / "daily_panel.parquet",
-        columns=["county_fips", "DATE"] + STATIC,
-    )
-    feats = sorted(set(FLOOD_FEATS) | set(STORM_FEATS))
+def main(rebuild_static=False):
     scorers = load_scorers()
-    cs = county_static(panel)
+    per_lead = load_lead_scorers()
+    cs = county_static(rebuild=rebuild_static)
     print(f"fetching live weather for {len(cs)} counties ...", flush=True)
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         results = list(ex.map(fetch, list(cs.itertuples(index=False))))
 
-    ok = {f: d for f, d in results if d}
+    ok = {f: d for f, d, _ in results if d}
     print(f"  {len(ok)}/{len(cs)} succeeded")
+    for f, d, err in results:
+        if not d:
+            print(f"  gave up on {f}: {err}")
 
     static_map = cs.set_index("county_fips")
     rows, keys = [], []
     weather = {}
     for fips, daily in ok.items():
-        for day, f, w in build_rows(fips, daily, static_map.loc[fips], feats):
+        for day, f, w in build_rows(fips, daily, static_map.loc[fips], FEATS):
             rows.append(f)
             keys.append((fips, day))
             weather.setdefault(fips, {})[day] = w
 
-    X = pd.DataFrame(rows).reindex(columns=feats)
+    X = pd.DataFrame(rows)
+    missing = [c for c in FEATS if c not in X.columns]
+    if missing:
+        raise SystemExit(f"live features missing {missing}")
     for haz, fn in scorers.items():
         X[f"p_{haz}"] = fn(X)
+    for (haz, k), fn in per_lead.items():
+        X[f"p_{haz}_l{k}"] = fn(X)
 
+    # Same 13-wide row shape the history export uses, so the dashboard has one
+    # row reader. The two ground-truth flags sit at 0: on a forecast day nothing
+    # has happened yet, and claiming otherwise would read as a model output.
+    cols = (["p_flood", "p_storm"]
+            + [f"p_flood_l{k}" for k in LEADS] + [f"p_storm_l{k}" for k in LEADS])
     days = {}
-    for (fips, day), pf, ps in zip(keys, X["p_flood"], X["p_storm"]):
+    for (fips, day), vals in zip(keys, X[cols].itertuples(index=False, name=None)):
+        pf, ps, *leads = (round(float(v), 5) for v in vals)
         days.setdefault(day, []).append(
-            [fips, round(float(pf), 5), round(float(ps), 5)]
+            [fips, pf, ps, weather[fips][day]["fwd3"], None, 0, 0] + leads
         )
 
     payload = {
         "generated": pd.Timestamp.now("UTC").strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source": "Open-Meteo forecast, scored by the prototype XGBoost models",
+        "source": "Open-Meteo forecast, scored by the XGBoost models from run "
+                  + provenance()["run_id"],
+        "run_id": provenance()["run_id"],
         "n_counties": len(ok),
         "days": days,
         "weather": weather,
@@ -160,4 +206,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(rebuild_static="--rebuild-static" in sys.argv)
