@@ -1,0 +1,241 @@
+run   20261104T015759Z-run
+env   colab
+root  /content/drive/MyDrive/crisk
+panel /content/drive/MyDrive/crisk/artifacts/daily_panel.parquet  exists=True
+warm-start flood: xgb=False  tft=False
+warm-start storm: xgb=False  tft=False
+smoke False  tag run
+panel daily_panel.parquet  3,252,826 rows  2000-2026  labels=['y_fema_flood', 'y_fema_storm', 'y_flood', 'y_storm']
+y_storm: labels end 2024; dropping rows test 179,646
+split     years    rows  counties  flood_pos  flood_rate%  storm_pos  storm_rate%
+train 2000-2014 1867821       356      20766       1.1118       4306       0.2305
+  val 2015-2019  619985       354       7132       1.1504       1600       0.2581
+ test 2020-2026  765020       356       8052       1.0525       2244       0.3833
+wrote /content/runs/20261104T015759Z-run/plots/split_run.png
+=== xgboost flood ===
+  best_iteration=336  169.4s  -> xgb_flood_run.json
+=== xgboost storm ===
+  best_iteration=135  79.3s  -> xgb_storm_run.json
+=== xgboost flood ===
+  baseline single_ratio_prev3           AP=0.11408
+  baseline single_ratio_fwd3            AP=0.07656
+  baseline single_prcp_fwd3             AP=0.07403
+  val   AP=0.33628  lift=29.2x
+  TEST  AP=0.25989  lift=24.7x  vs_best=2.28x
+=== xgboost storm ===
+  baseline single_prcp_fwd3_max         AP=0.03759
+  baseline single_prcp_fwd3             AP=0.03452
+  baseline single_log_fwd3              AP=0.03452
+  val   AP=0.12510  lift=48.5x
+  TEST  AP=0.17530  lift=45.7x  vs_best=4.66x
+wrote /content/runs/20261104T015759Z-run/results/xgb_run.json
+=== tft flood ===
+  epochs=13  best_val_loss=0.43376  3579.9s  -> tft_flood_run.ckpt
+=== tft storm ===
+  epochs=6  best_val_loss=0.49643  1657.1s  -> tft_storm_run.ckpt
+=== tft flood ===
+  calibration  mean pred 0.11170 -> 0.00909  (observed 0.01056)   AP 0.24292 -> 0.23503
+  val   AP=0.31494  lift=27.4x
+  TEST  AP=0.23503  lift=22.2x  vs_best=2.06x  (8,000 pos / 757,279 windows)
+=== tft storm ===
+  calibration  mean pred 0.05141 -> 0.00253  (observed 0.00383)   AP 0.05895 -> 0.05407
+  val   AP=0.07219  lift=28.0x
+  TEST  AP=0.05407  lift=14.1x  vs_best=1.44x  (2,220 pos / 579,263 windows)
+wrote /content/runs/20261104T015759Z-run/results/tft_run.json
+hazard                          model  test_AP  lift  vs_baseline   verdict
+ flood   baseline: single_ratio_prev3  0.11408   NaN         1.00 reference
+ flood                        xgboost  0.25989  24.7         2.28      keep
+ flood                            tft  0.23503  22.2         2.06      keep
+ storm baseline: single_prcp_fwd3_max  0.03759   NaN         1.00 reference
+ storm                        xgboost  0.17530  45.7         4.66      keep
+ storm                            tft  0.05407  14.1         1.44      keep
+
+=== flood - predicted vs observed, test period (757,279 county-days, 8000 real onsets) ===
+                              always_zero    base_rate   xgboost         tft
+flood: predicted vs observed                                                
+n_rows                            757,279      757,279   757,279     757,279
+observed_events                     8,000        8,000     8,000       8,000
+observed_rate                   0.0105641    0.0105641 0.0105641   0.0105641
+predicted_mean                          0    0.0111178 0.0118173  0.00908756
+bias_pred_minus_obs            -0.0105641   0.00055363 0.0012532 -0.00147657
+predicted_sd                            0  1.73472e-18 0.0538044   0.0384462
+observed_sd                      0.102238     0.102238  0.102238    0.102238
+MAE                             0.0105641     0.021447 0.0178466   0.0164998
+RMSE                             0.102782     0.102239  0.095204   0.0947254
+max_abs_error                           1     0.988882  0.999917           1
+brier                           0.0105641    0.0104528 0.0090638  0.00897291
+brier_skill_vs_baserate        -0.0106769 -2.93236e-05  0.132861    0.141557
+log_loss                         0.291898    0.0585922 0.0382651   0.0397331
+calibration_error_ECE           0.0105641   0.00171646 0.0020724  0.00157939
+average_precision               0.0105641    0.0105641  0.260297    0.235029
+lift_over_rate                          1            1   24.6397     22.2478
+threshold_p99                           0    0.0111178  0.247153    0.201764
+hits                                   95           95     2,517       2,442
+misses                              7,905        7,905     5,483       5,558
+false_alarms                        7,478        7,478     5,056       5,131
+POD_recall                       0.011875     0.011875  0.314625     0.30525
+FAR_false_alarm_ratio            0.987455     0.987455  0.667635    0.677539
+precision                       0.0125446    0.0125446  0.332365    0.322461
+CSI_critical_success           0.00613774   0.00613774  0.192785    0.185972
+F1                              0.0122006    0.0122006  0.323252     0.31362
+
+=== storm - predicted vs observed, test period (579,263 county-days, 2220 real onsets) ===
+                              always_zero    base_rate     xgboost         tft
+storm: predicted vs observed                                                  
+n_rows                            579,263      579,263     579,263     579,263
+observed_events                     2,220        2,220       2,220       2,220
+observed_rate                  0.00383246   0.00383246  0.00383246  0.00383246
+predicted_mean                          0   0.00230536  0.00249098  0.00253414
+bias_pred_minus_obs           -0.00383246   -0.0015271 -0.00134147 -0.00129832
+predicted_sd                            0            0   0.0198267   0.0106589
+observed_sd                     0.0617881    0.0617881   0.0617881   0.0617881
+MAE                            0.00383246   0.00612015  0.00555047  0.00612654
+RMSE                            0.0619068     0.061807   0.0588115   0.0609298
+max_abs_error                           1     0.997695    0.999904    0.999597
+brier                          0.00383246    0.0038201  0.00345879  0.00371244
+brier_skill_vs_baserate        -0.0038472 -0.000610834   0.0940278     0.02759
+log_loss                         0.105895    0.0255718   0.0166595   0.0206699
+calibration_error_ECE          0.00383246   0.00269307  0.00138609  0.00131514
+average_precision              0.00383246   0.00383246    0.174881   0.0540734
+lift_over_rate                          1            1     45.6317     14.1093
+threshold_p99                           0   0.00230536   0.0436712    0.031339
+hits                                   33           33         867         444
+misses                              2,187        2,187       1,353       1,776
+false_alarms                        5,760        5,760       4,926       5,349
+POD_recall                      0.0148649    0.0148649    0.390541         0.2
+FAR_false_alarm_ratio            0.994303     0.994303    0.850337    0.923356
+precision                      0.00569653   0.00569653    0.149663   0.0766442
+CSI_critical_success           0.00413534   0.00413534    0.121327   0.0586603
+F1                             0.00823662   0.00823662    0.216398     0.11082
+
+wrote /content/runs/20261104T015759Z-run/results/results_run.json
+plots in /content/runs/20261104T015759Z-run/plots
+  compare_run.png
+  reliability_run.png
+  split_run.png
+  tft_eval_run.png
+  xgb_eval_run.png
+  xgb_training_run.png
+=== xgboost flood lead 1 day ===
+  best_iteration=279  148.0s
+  TEST  AP=0.17179  lift=46.1x  vs_best=1.90x  (2,850 pos / 765,020 rows)
+=== xgboost flood lead 2 day ===
+  best_iteration=264  135.8s
+  TEST  AP=0.12669  lift=34.1x  vs_best=1.17x  (2,839 pos / 765,020 rows)
+=== xgboost flood lead 3 day ===
+  best_iteration=39  42.7s
+  TEST  AP=0.07490  lift=20.2x  vs_best=1.41x  (2,836 pos / 765,020 rows)
+=== xgboost storm lead 1 day ===
+  best_iteration=45  44.1s
+  TEST  AP=0.09879  lift=77.2x  vs_best=2.41x  (749 pos / 585,374 rows)
+=== xgboost storm lead 2 day ===
+  best_iteration=18  32.8s
+  TEST  AP=0.07207  lift=56.3x  vs_best=1.57x  (749 pos / 585,374 rows)
+=== xgboost storm lead 3 day ===
+  best_iteration=110  69.5s
+  TEST  AP=0.03716  lift=29.0x  vs_best=2.21x  (749 pos / 585,374 rows)
+
+=== skill vs lead time (XGBoost, test period) ===
+hazard       lead  test_pos  prevalence  test_AP  lift             baseline  baseline_AP  vs_baseline
+ flood 1-3 pooled      8052    0.010525  0.25989  24.7   single_ratio_prev3      0.11408         2.28
+ flood     +1 day      2850    0.003725  0.17179  46.1    single_ratio_fwd3      0.09035         1.90
+ flood     +2 day      2839    0.003711  0.12669  34.1    single_ratio_fwd3      0.10823         1.17
+ flood     +3 day      2836    0.003707  0.07490  20.2    single_ratio_fwd3      0.05325         1.41
+ storm 1-3 pooled      2244    0.003833  0.17530  45.7 single_prcp_fwd3_max      0.03759         4.66
+ storm     +1 day       749    0.001280  0.09879  77.2     single_prcp_fwd3      0.04103         2.41
+ storm     +2 day       749    0.001280  0.07207  56.3     single_prcp_fwd3      0.04580         1.57
+ storm     +3 day       749    0.001280  0.03716  29.0     single_prcp_fwd3      0.01682         2.21
+
+wrote /content/runs/20261104T015759Z-run/results/leads_run.csv
+wrote /content/runs/20261104T015759Z-run/plots/lead_run.png
+TFT lead sweep: 6 models to fit; the pooled models ran [13, 6] epochs for reference
+=== tft flood lead 1 day ===
+  epochs=10  best_val_loss=0.24344  2783.7s
+  TEST  AP=0.10706  lift=28.6x  vs_best=1.18x  (2,831 pos / 757,279 windows)
+=== tft flood lead 2 day ===
+  epochs=9  best_val_loss=0.21760  2515.2s
+  TEST  AP=0.12586  lift=33.8x  vs_best=1.16x  (2,820 pos / 757,279 windows)
+=== tft flood lead 3 day ===
+  epochs=14  best_val_loss=0.25550  3913.5s
+  TEST  AP=0.06357  lift=17.1x  vs_best=1.19x  (2,820 pos / 757,279 windows)
+=== tft storm lead 1 day ===
+  epochs=6  best_val_loss=0.25078  1688.3s
+  TEST  AP=0.05414  lift=42.3x  vs_best=1.32x  (741 pos / 579,263 windows)
+=== tft storm lead 2 day ===
+  epochs=16  best_val_loss=0.22958  4471.3s
+  TEST  AP=0.05110  lift=40.0x  vs_best=1.12x  (740 pos / 579,263 windows)
+=== tft storm lead 3 day ===
+  epochs=8  best_val_loss=0.26067  2245.1s
+  TEST  AP=0.03429  lift=26.7x  vs_best=2.04x  (743 pos / 579,263 windows)
+
+=== skill vs lead time, both models (test period) ===
+hazard   lead  prevalence          baseline  baseline_AP  xgb_AP  xgb_vs_base  tft_AP  tft_vs_base  tft_epochs  tft_windows
+ flood +1 day    0.003725 single_ratio_fwd3      0.09035 0.17179         1.90 0.10706         1.18          10       757279
+ flood +2 day    0.003711 single_ratio_fwd3      0.10823 0.12669         1.17 0.12586         1.16           9       757279
+ flood +3 day    0.003707 single_ratio_fwd3      0.05325 0.07490         1.41 0.06357         1.19          14       757279
+ storm +1 day    0.001280  single_prcp_fwd3      0.04103 0.09879         2.41 0.05414         1.32           6       579263
+ storm +2 day    0.001280  single_prcp_fwd3      0.04580 0.07207         1.57 0.05110         1.12          16       579263
+ storm +3 day    0.001280  single_prcp_fwd3      0.01682 0.03716         2.21 0.03429         2.04           8       579263
+
+wrote /content/runs/20261104T015759Z-run/results/leads_both_run.csv
+wrote /content/runs/20261104T015759Z-run/plots/lead_both_run.png
+
+sealed to Drive: /content/drive/MyDrive/crisk/artifacts/runs/20261104T015759Z-run.zip  (15.9 MB, sha256 verified)
+DOWNLOAD THAT ZIP. Drive has already lost one run's results.
+
+=== run sealed: /content/runs/20261104T015759Z-run ===
+wall 26596.6s   53 files   git n/a
+cold start: reproducible from this directory and the panel hash alone
+  console.log
+  manifest.json
+  models/tft_flood_l1_run.ckpt
+  models/tft_flood_l2_run.ckpt
+  models/tft_flood_l3_run.ckpt
+  models/tft_flood_run.ckpt
+  models/tft_storm_l1_run.ckpt
+  models/tft_storm_l2_run.ckpt
+  models/tft_storm_l3_run.ckpt
+  models/tft_storm_run.ckpt
+  models/xgb_flood_l1_run.json
+  models/xgb_flood_l2_run.json
+  models/xgb_flood_l3_run.json
+  models/xgb_flood_run.json
+  models/xgb_storm_l1_run.json
+  models/xgb_storm_l2_run.json
+  models/xgb_storm_l3_run.json
+  models/xgb_storm_run.json
+  plots/compare_run.png
+  plots/lead_both_run.png
+  plots/lead_run.png
+  plots/reliability_run.png
+  plots/split_run.png
+  plots/tft_eval_run.png
+  plots/xgb_eval_run.png
+  plots/xgb_training_run.png
+  results/deviation_flood_run.csv
+  results/deviation_storm_run.csv
+  results/leads_both_run.csv
+  results/leads_run.csv
+  results/leads_run.json
+  results/params_run.json
+  results/results_run.json
+  results/summary_run.csv
+  results/tft_leads_run.json
+  results/tft_run.json
+  results/xgb_run.json
+  tft_logs/flood/hparams.yaml
+  tft_logs/flood/metrics.csv
+  tft_logs/flood_l1/hparams.yaml
+  tft_logs/flood_l1/metrics.csv
+  tft_logs/flood_l2/hparams.yaml
+  tft_logs/flood_l2/metrics.csv
+  tft_logs/flood_l3/hparams.yaml
+  tft_logs/flood_l3/metrics.csv
+  tft_logs/storm/hparams.yaml
+  tft_logs/storm/metrics.csv
+  tft_logs/storm_l1/hparams.yaml
+  tft_logs/storm_l1/metrics.csv
+  tft_logs/storm_l2/hparams.yaml
+  tft_logs/storm_l2/metrics.csv
+  tft_logs/storm_l3/hparams.yaml
+  tft_logs/storm_l3/metrics.csv

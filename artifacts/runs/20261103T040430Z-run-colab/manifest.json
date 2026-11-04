@@ -1,0 +1,137 @@
+{
+  "run_id": "20261103T040430Z-run-colab",
+  "tag": "run",
+  "smoke": false,
+  "env": "colab",
+  "host": "colab (GPU runtime)",
+  "root": "/content/drive/MyDrive/project climate./crisk",
+  "retro_ingested": true,
+  "ingested_utc": "2026-11-03T17:19:55+00:00",
+  "started_utc": null,
+  "finished_utc": null,
+  "approx_run_date": "2026-11-03T04:04:30+00:00",
+  "approx_run_date_basis": "mtime of the downloaded notebook",
+  "provenance": "Rescued from the downloaded notebook's embedded cell output by archive_colab_run.py. This run predates the run-archiving in pipeline.py, so there is no manifest written at run time. Every figure in this manifest is parsed from console.log, which is the verbatim notebook output and is included alongside it.",
+  "git": {
+    "commit": null,
+    "branch": null,
+    "dirty": null,
+    "note": "Colab ran an uploaded notebook, not a git checkout"
+  },
+  "versions": {
+    "python": "3.13.16",
+    "numpy": "2.4.6",
+    "pandas": "2.2.3",
+    "xgboost": "3.4.1",
+    "torch": "2.11.0+cu130"
+  },
+  "cuda_available": true,
+  "panel": {
+    "line_as_printed": "/content/drive/MyDrive/project climate./crisk/artifacts/daily_panel.parquet  exists=True",
+    "sha256": null,
+    "note": "panel hashing was added after this run; the notebook records only the path"
+  },
+  "splits": [
+    {
+      "split": "train",
+      "years": "2000-2014",
+      "rows": 1867821,
+      "counties": 356,
+      "flood_pos": 20766,
+      "flood_rate%": 1.1118,
+      "storm_pos": 4306,
+      "storm_rate%": 0.2305
+    },
+    {
+      "split": "val",
+      "years": "2015-2019",
+      "rows": 619985,
+      "counties": 354,
+      "flood_pos": 7132,
+      "flood_rate%": 1.1504,
+      "storm_pos": 1600,
+      "storm_rate%": 0.2581
+    },
+    {
+      "split": "test",
+      "years": "2020-2026",
+      "rows": 765020,
+      "counties": 356,
+      "flood_pos": 8052,
+      "flood_rate%": 1.0525,
+      "storm_pos": 2244,
+      "storm_rate%": 0.3833
+    }
+  ],
+  "fit": {
+    "xgb:flood": {
+      "best_iteration": 336,
+      "seconds": 170.0
+    },
+    "xgb:storm": {
+      "best_iteration": 135,
+      "seconds": 80.7
+    },
+    "tft:flood": {
+      "epochs_run": 13,
+      "best_val_loss": 0.42434,
+      "seconds": 2733.8
+    },
+    "tft:storm": {
+      "epochs_run": 16,
+      "best_val_loss": 0.42272,
+      "seconds": 3367.4
+    }
+  },
+  "warm_start_at_entry": {
+    "flood": {
+      "xgb": false,
+      "tft": false
+    },
+    "storm": {
+      "xgb": false,
+      "tft": false
+    }
+  },
+  "self_contained": true,
+  "headline": {
+    "flood": {
+      "baseline: single_ratio_prev3": {
+        "test_ap": 0.11408,
+        "vs_baseline": 1.0
+      },
+      "xgboost": {
+        "test_ap": 0.25989,
+        "vs_baseline": 2.28
+      },
+      "tft": {
+        "test_ap": 0.21397,
+        "vs_baseline": 1.88
+      }
+    },
+    "storm": {
+      "baseline: single_prcp_fwd3_max": {
+        "test_ap": 0.03759,
+        "vs_baseline": 1.0
+      },
+      "xgboost": {
+        "test_ap": 0.1753,
+        "vs_baseline": 4.66
+      },
+      "tft": {
+        "test_ap": 0.07193,
+        "vs_baseline": 1.91
+      }
+    }
+  },
+  "recovered_from_drive": {
+    "results/params_run.json": "84e652a5bfc069cc460b5aa5737298cbc956f765960fcc7bedd295e28f489ec9"
+  },
+  "incomplete": "4 of 4 files the run reported writing were not recovered: results_run.json, split_run.png, tft_run.json, xgb_run.json",
+  "inventory": [
+    "console.log",
+    "manifest.json",
+    "notebook.ipynb",
+    "results/params_run.json"
+  ]
+}

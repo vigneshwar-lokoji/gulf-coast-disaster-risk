@@ -1,0 +1,54 @@
+{
+  "tag": "run",
+  "smoke": false,
+  "seed": 0,
+  "hazards": [
+    "flood",
+    "storm"
+  ],
+  "horizon_days": 3,
+  "years": {
+    "train": [
+      2000,
+      2014
+    ],
+    "val": [
+      2015,
+      2019
+    ],
+    "test": [
+      2020,
+      2026
+    ]
+  },
+  "label_end": {
+    "storm": 2024
+  },
+  "counties": 0,
+  "warm_start": true,
+  "xgb": {
+    "rounds": 2000,
+    "early": 50,
+    "lr": 0.05,
+    "max_depth": 6,
+    "min_child_weight": 50,
+    "subsample": 0.9,
+    "colsample_bytree": 0.9,
+    "reg_lambda": 5.0
+  },
+  "tft": {
+    "encoder_days": 30,
+    "hidden": 32,
+    "heads": 4,
+    "dropout": 0.2,
+    "hidden_continuous": 16,
+    "lr": 0.01,
+    "epochs": 30,
+    "batch": 512,
+    "early": 5,
+    "pos_weight": 50.0,
+    "limit_train_batches": 0.25,
+    "workers": 4,
+    "limit_val_batches": 0.2
+  }
+}

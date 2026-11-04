@@ -1,0 +1,138 @@
+===== cell 1 =====
+python     3.13.16
+numpy      2.4.6
+pandas     2.2.3
+xgboost    3.4.1
+torch      2.11.0+cu130  cuda=True
+
+===== cell 2 =====
+Mounted at /content/drive
+CRISK_ROOT unset; found the panel under /content/drive/MyDrive/project climate./crisk
+env   colab
+root  /content/drive/MyDrive/project climate./crisk
+panel /content/drive/MyDrive/project climate./crisk/artifacts/daily_panel.parquet  exists=True
+warm-start flood: xgb=False  tft=False
+warm-start storm: xgb=False  tft=False
+smoke False  tag run
+
+===== cell 3 =====
+y_storm: labels end 2024; dropping rows test 179,646
+split     years    rows  counties  flood_pos  flood_rate%  storm_pos  storm_rate%
+train 2000-2014 1867821       356      20766       1.1118       4306       0.2305
+  val 2015-2019  619985       354       7132       1.1504       1600       0.2581
+ test 2020-2026  765020       356       8052       1.0525       2244       0.3833
+wrote /content/drive/MyDrive/project climate./crisk/artifacts/plots/split_run.png
+
+===== cell 4 =====
+=== xgboost flood ===
+  best_iteration=336  170.0s  -> xgb_flood_run.json
+=== xgboost storm ===
+  best_iteration=135  80.7s  -> xgb_storm_run.json
+
+===== cell 5 =====
+=== xgboost flood ===
+  baseline single_ratio_prev3           AP=0.11408
+  baseline single_ratio_fwd3            AP=0.07656
+  baseline single_prcp_fwd3             AP=0.07403
+  val   AP=0.33628  lift=29.2x
+  TEST  AP=0.25989  lift=24.7x  vs_best=2.28x
+=== xgboost storm ===
+  baseline single_prcp_fwd3_max         AP=0.03759
+  baseline single_prcp_fwd3             AP=0.03452
+  baseline single_log_fwd3              AP=0.03452
+  val   AP=0.12510  lift=48.5x
+  TEST  AP=0.17530  lift=45.7x  vs_best=4.66x
+wrote /content/drive/MyDrive/project climate./crisk/artifacts/results/xgb_run.json
+
+===== cell 6 =====
+=== tft flood ===
+  epochs=13  best_val_loss=0.42434  2733.8s  -> tft_flood_run.ckpt
+=== tft storm ===
+  epochs=16  best_val_loss=0.42272  3367.4s  -> tft_storm_run.ckpt
+
+===== cell 7 =====
+=== tft flood ===
+  calibration  mean pred 0.08833 -> 0.00924  (observed 0.01056)   AP 0.21933 -> 0.21397
+  val   AP=0.26236  lift=22.8x
+  TEST  AP=0.21397  lift=20.3x  vs_best=1.88x  (8,000 pos / 757,279 windows)
+=== tft storm ===
+  calibration  mean pred 0.07426 -> 0.00246  (observed 0.00383)   AP 0.08168 -> 0.07193
+  val   AP=0.08143  lift=31.6x
+  TEST  AP=0.07193  lift=18.8x  vs_best=1.91x  (2,220 pos / 579,263 windows)
+wrote /content/drive/MyDrive/project climate./crisk/artifacts/results/tft_run.json
+
+===== cell 8 =====
+hazard                          model  test_AP  lift  vs_baseline   verdict
+ flood   baseline: single_ratio_prev3  0.11408   NaN         1.00 reference
+ flood                        xgboost  0.25989  24.7         2.28      keep
+ flood                            tft  0.21397  20.3         1.88      keep
+ storm baseline: single_prcp_fwd3_max  0.03759   NaN         1.00 reference
+ storm                        xgboost  0.17530  45.7         4.66      keep
+ storm                            tft  0.07193  18.8         1.91      keep
+
+=== flood - predicted vs observed, test period (757,279 county-days, 8000 real onsets) ===
+                              always_zero    base_rate   xgboost         tft
+flood: predicted vs observed                                                
+n_rows                            757,279      757,279   757,279     757,279
+observed_events                     8,000        8,000     8,000       8,000
+observed_rate                   0.0105641    0.0105641 0.0105641   0.0105641
+predicted_mean                          0    0.0111178 0.0118173  0.00924239
+bias_pred_minus_obs            -0.0105641   0.00055363 0.0012532 -0.00132174
+predicted_sd                            0  1.73472e-18 0.0538044   0.0359894
+observed_sd                      0.102238     0.102238  0.102238    0.102238
+MAE                             0.0105641     0.021447 0.0178466   0.0169346
+RMSE                             0.102782     0.102239  0.095204   0.0952513
+max_abs_error                           1     0.988882  0.999917           1
+brier                           0.0105641    0.0104528 0.0090638  0.00907282
+brier_skill_vs_baserate        -0.0106769 -2.93236e-05  0.132861    0.131999
+log_loss                         0.291898    0.0585922 0.0382651   0.0391987
+calibration_error_ECE           0.0105641   0.00171646 0.0020724  0.00143012
+average_precision               0.0105641    0.0105641  0.260297    0.213973
+lift_over_rate                          1            1   24.6397     20.2547
+threshold_p99                           0    0.0111178  0.247153    0.178187
+hits                                   95           95     2,517       2,343
+misses                              7,905        7,905     5,483       5,657
+false_alarms                        7,478        7,478     5,056       5,230
+POD_recall                       0.011875     0.011875  0.314625    0.292875
+FAR_false_alarm_ratio            0.987455     0.987455  0.667635    0.690611
+precision                       0.0125446    0.0125446  0.332365    0.309389
+CSI_critical_success           0.00613774   0.00613774  0.192785    0.177098
+F1                              0.0122006    0.0122006  0.323252    0.300905
+
+=== storm - predicted vs observed, test period (579,263 county-days, 2220 real onsets) ===
+                              always_zero    base_rate     xgboost         tft
+storm: predicted vs observed                                                  
+n_rows                            579,263      579,263     579,263     579,263
+observed_events                     2,220        2,220       2,220       2,220
+observed_rate                  0.00383246   0.00383246  0.00383246  0.00383246
+predicted_mean                          0   0.00230536  0.00249098  0.00246421
+bias_pred_minus_obs           -0.00383246   -0.0015271 -0.00134147 -0.00136825
+predicted_sd                            0            0   0.0198267  0.00988068
+observed_sd                     0.0617881    0.0617881   0.0617881   0.0617881
+MAE                            0.00383246   0.00612015  0.00555047  0.00602259
+RMSE                            0.0619068     0.061807   0.0588115   0.0605151
+max_abs_error                           1     0.997695    0.999904    0.999605
+brier                          0.00383246    0.0038201  0.00345879  0.00366208
+brier_skill_vs_baserate        -0.0038472 -0.000610834   0.0940278   0.0407812
+log_loss                         0.105895    0.0255718   0.0166595   0.0205893
+calibration_error_ECE          0.00383246   0.00269307  0.00138609  0.00142208
+average_precision              0.00383246   0.00383246    0.174881   0.0719341
+lift_over_rate                          1            1     45.6317     18.7697
+threshold_p99                           0   0.00230536   0.0436712   0.0220901
+hits                                   33           33         867         476
+misses                              2,187        2,187       1,353       1,744
+false_alarms                        5,760        5,760       4,926       5,317
+POD_recall                      0.0148649    0.0148649    0.390541    0.214414
+FAR_false_alarm_ratio            0.994303     0.994303    0.850337    0.917832
+precision                      0.00569653   0.00569653    0.149663   0.0821681
+CSI_critical_success           0.00413534   0.00413534    0.121327   0.0631551
+F1                             0.00823662   0.00823662    0.216398    0.118807
+
+wrote /content/drive/MyDrive/project climate./crisk/artifacts/results/results_run.json
+plots in /content/drive/MyDrive/project climate./crisk/artifacts/plots
+  compare_run.png
+  reliability_run.png
+  split_run.png
+  tft_eval_run.png
+  xgb_eval_run.png
+  xgb_training_run.png

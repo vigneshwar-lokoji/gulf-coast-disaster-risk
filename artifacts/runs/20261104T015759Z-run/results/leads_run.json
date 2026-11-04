@@ -1,0 +1,320 @@
+{
+  "flood_l1": {
+    "hazard": "flood",
+    "lead_days": 1,
+    "test": {
+      "ap": 0.17178690639526245,
+      "prevalence": 0.0037253928001882305,
+      "lift": 46.11242776508901
+    },
+    "best_baseline": "single_ratio_fwd3",
+    "best_baseline_ap": 0.09034985355109863,
+    "vs_best_baseline": 1.9013523502625929,
+    "baselines": {
+      "constant_prevalence": 0.0037253928001882305,
+      "single_ratio_fwd3": 0.09034985355109863,
+      "single_prcp_fwd3": 0.08769058133100309,
+      "single_prcp_fwd3_max": 0.07594005551979321,
+      "single_prcp_prev30": 0.007261359617840706,
+      "single_ratio_prev3": 0.009899413868528276,
+      "single_log_fwd3": 0.08769058133100309,
+      "single_pop_density": 0.007854050992153284,
+      "month_climatology": 0.00609738972157626
+    },
+    "best_iteration": 279,
+    "n_train_pos": 7441,
+    "n_test_pos": 2850,
+    "fit_seconds": 148.0,
+    "top_features": [
+      [
+        "ratio_fwd3",
+        0.59611
+      ],
+      [
+        "log_fwd3",
+        0.11199
+      ],
+      [
+        "prcp_fwd1",
+        0.04821
+      ],
+      [
+        "ratio_prev3",
+        0.02397
+      ],
+      [
+        "lon",
+        0.02053
+      ],
+      [
+        "prcp_fwd3",
+        0.01984
+      ]
+    ]
+  },
+  "flood_l2": {
+    "hazard": "flood",
+    "lead_days": 2,
+    "test": {
+      "ap": 0.12669128893060821,
+      "prevalence": 0.003711014091134872,
+      "lift": 34.13926377516516
+    },
+    "best_baseline": "single_ratio_fwd3",
+    "best_baseline_ap": 0.10823159915366333,
+    "vs_best_baseline": 1.1705573041634216,
+    "baselines": {
+      "constant_prevalence": 0.003711014091134872,
+      "single_ratio_fwd3": 0.10823159915366333,
+      "single_prcp_fwd3": 0.10215161123847032,
+      "single_prcp_fwd3_max": 0.07949871956188528,
+      "single_prcp_prev30": 0.006585077440974004,
+      "single_ratio_prev3": 0.006386526399973636,
+      "single_log_fwd3": 0.10215161123847032,
+      "single_pop_density": 0.007850107127298115,
+      "month_climatology": 0.006019223256366897
+    },
+    "best_iteration": 264,
+    "n_train_pos": 7437,
+    "n_test_pos": 2839,
+    "fit_seconds": 135.8,
+    "top_features": [
+      [
+        "ratio_fwd3",
+        0.6734
+      ],
+      [
+        "log_fwd3",
+        0.08496
+      ],
+      [
+        "prcp_fwd3",
+        0.03064
+      ],
+      [
+        "lon",
+        0.02443
+      ],
+      [
+        "month_cos",
+        0.02161
+      ],
+      [
+        "pop_density",
+        0.01745
+      ]
+    ]
+  },
+  "flood_l3": {
+    "hazard": "flood",
+    "lead_days": 3,
+    "test": {
+      "ap": 0.07489906393641058,
+      "prevalence": 0.003707092625029411,
+      "lift": 20.20426018781129
+    },
+    "best_baseline": "single_ratio_fwd3",
+    "best_baseline_ap": 0.053249896430387716,
+    "vs_best_baseline": 1.4065579270060042,
+    "baselines": {
+      "constant_prevalence": 0.003707092625029411,
+      "single_ratio_fwd3": 0.053249896430387716,
+      "single_prcp_fwd3": 0.04932657776078683,
+      "single_prcp_fwd3_max": 0.04470210975411109,
+      "single_prcp_prev30": 0.006334459252059863,
+      "single_ratio_prev3": 0.005646894547175962,
+      "single_log_fwd3": 0.04932657776078683,
+      "single_pop_density": 0.007847634715833862,
+      "month_climatology": 0.005945684792987061
+    },
+    "best_iteration": 39,
+    "n_train_pos": 7427,
+    "n_test_pos": 2836,
+    "fit_seconds": 42.7,
+    "top_features": [
+      [
+        "ratio_fwd3",
+        0.63217
+      ],
+      [
+        "lon",
+        0.03981
+      ],
+      [
+        "month_cos",
+        0.03816
+      ],
+      [
+        "pop_density",
+        0.03359
+      ],
+      [
+        "prcp_fwd3",
+        0.03237
+      ],
+      [
+        "prcp_fwd3_max",
+        0.02893
+      ]
+    ]
+  },
+  "storm_l1": {
+    "hazard": "storm",
+    "lead_days": 1,
+    "test": {
+      "ap": 0.09878785558626338,
+      "prevalence": 0.0012795238599596155,
+      "lift": 77.20673187710726
+    },
+    "best_baseline": "single_prcp_fwd3",
+    "best_baseline_ap": 0.04103411471364296,
+    "vs_best_baseline": 2.4074567290084254,
+    "baselines": {
+      "constant_prevalence": 0.0012795238599596155,
+      "single_ratio_fwd3": 0.028459953855495785,
+      "single_prcp_fwd3": 0.04103411471364296,
+      "single_prcp_fwd3_max": 0.03990411370218285,
+      "single_prcp_prev30": 0.002308270026312633,
+      "single_ratio_prev3": 0.001980965223729593,
+      "single_log_fwd3": 0.04103411471364296,
+      "single_pop_density": 0.002094288381699428,
+      "month_climatology": 0.003448173096378751
+    },
+    "best_iteration": 45,
+    "n_train_pos": 1436,
+    "n_test_pos": 749,
+    "fit_seconds": 44.1,
+    "top_features": [
+      [
+        "log_fwd3",
+        0.33046
+      ],
+      [
+        "prcp_fwd3",
+        0.23705
+      ],
+      [
+        "prcp_fwd3_max",
+        0.07738
+      ],
+      [
+        "hurricane_season",
+        0.06297
+      ],
+      [
+        "tmin",
+        0.06182
+      ],
+      [
+        "prcp_fwd1",
+        0.05957
+      ]
+    ]
+  },
+  "storm_l2": {
+    "hazard": "storm",
+    "lead_days": 2,
+    "test": {
+      "ap": 0.07207351970864591,
+      "prevalence": 0.0012795238599596155,
+      "lift": 56.32839055531227
+    },
+    "best_baseline": "single_prcp_fwd3",
+    "best_baseline_ap": 0.04580165898974876,
+    "vs_best_baseline": 1.573600635836734,
+    "baselines": {
+      "constant_prevalence": 0.0012795238599596155,
+      "single_ratio_fwd3": 0.03125683386397972,
+      "single_prcp_fwd3": 0.04580165898974876,
+      "single_prcp_fwd3_max": 0.039339810683237796,
+      "single_prcp_prev30": 0.002127613889646207,
+      "single_ratio_prev3": 0.0014058511091562607,
+      "single_log_fwd3": 0.04580165898974876,
+      "single_pop_density": 0.002094288381699428,
+      "month_climatology": 0.0033761839510565916
+    },
+    "best_iteration": 18,
+    "n_train_pos": 1436,
+    "n_test_pos": 749,
+    "fit_seconds": 32.8,
+    "top_features": [
+      [
+        "log_fwd3",
+        0.41465
+      ],
+      [
+        "prcp_fwd3",
+        0.28924
+      ],
+      [
+        "hurricane_season",
+        0.05734
+      ],
+      [
+        "month_sin",
+        0.05494
+      ],
+      [
+        "tmin",
+        0.0481
+      ],
+      [
+        "prcp_fwd3_max",
+        0.02307
+      ]
+    ]
+  },
+  "storm_l3": {
+    "hazard": "storm",
+    "lead_days": 3,
+    "test": {
+      "ap": 0.03715534921207617,
+      "prevalence": 0.0012795238599596155,
+      "lift": 29.038418410774202
+    },
+    "best_baseline": "single_prcp_fwd3",
+    "best_baseline_ap": 0.016822604768776388,
+    "vs_best_baseline": 2.208656133979822,
+    "baselines": {
+      "constant_prevalence": 0.0012795238599596155,
+      "single_ratio_fwd3": 0.012248030900143907,
+      "single_prcp_fwd3": 0.016822604768776388,
+      "single_prcp_fwd3_max": 0.01628117006671765,
+      "single_prcp_prev30": 0.0021391148057131196,
+      "single_ratio_prev3": 0.0013696272423278995,
+      "single_log_fwd3": 0.016822604768776388,
+      "single_pop_density": 0.002094288381699428,
+      "month_climatology": 0.0033086409261061465
+    },
+    "best_iteration": 110,
+    "n_train_pos": 1436,
+    "n_test_pos": 749,
+    "fit_seconds": 69.5,
+    "top_features": [
+      [
+        "log_fwd3",
+        0.25398
+      ],
+      [
+        "prcp_fwd3",
+        0.20382
+      ],
+      [
+        "prcp_fwd3_max",
+        0.1316
+      ],
+      [
+        "hurricane_season",
+        0.08253
+      ],
+      [
+        "month_sin",
+        0.06005
+      ],
+      [
+        "tmin",
+        0.05663
+      ]
+    ]
+  }
+}
