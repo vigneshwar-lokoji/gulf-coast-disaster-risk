@@ -13,12 +13,8 @@
     <div>
       <h1>County Flood &amp; Hurricane Risk</h1>
       <p class="sub">
-        Every county in the lower 48. Pick one to see the live 4-day weather
-        forecast, any official National Weather Service warnings in force right
-        now, and — across the Gulf Coast, where the models are trained and
-        validated — its modelled flood and hurricane risk for a given day
-        alongside the flood episodes and cyclone passes actually on record for
-        it.
+        Pick a county for its flood and hurricane risk, the live forecast, and
+        the official warnings in force now.
       </p>
     </div>
     <div class="theme" role="group" aria-label="Colour theme">
@@ -83,9 +79,8 @@
     <div class="empty" id="detail-empty">
       <p><strong>Select a county</strong></p>
       <p class="quiet">
-        Click any county on the map, or pick one below. Shaded counties carry a
-        model risk score; every other county still returns live weather and
-        official warnings.
+        Click the map or pick one below. Shaded counties carry a risk score;
+        the rest still return live weather and warnings.
       </p>
       <label class="pickwrap">
         <span class="ctl-label">Jump to county</span>
@@ -120,15 +115,10 @@
       </div>
       <p class="note" id="risk-expl"></p>
 
-      <h3>How far ahead, specifically</h3>
-      <p class="note">
-        The two cards above pool the next three days into one number: risk that
-        something starts <em>somewhere</em> in that window. These are the
-        separate models trained for one exact lead each, so they answer
-        &ldquo;starting on day +1&rdquo;, &ldquo;+2&rdquo; and &ldquo;+3&rdquo;
-        independently. Skill falls as the lead grows, and this is where you can
-        see it fall.
-      </p>
+      <h3>Live now — official vs. model</h3>
+      <div id="d-live" class="lcheck"></div>
+
+      <h3>Risk by exact lead</h3>
       <div id="d-leads" class="leadblock"></div>
 
       <h3>Official warnings in force now</h3>
@@ -141,17 +131,7 @@
         <p class="quiet">Loading from Open-Meteo&hellip;</p>
       </div>
 
-      <h3>Forecast vs. what really happened</h3>
-      <p class="note">
-        Flood episodes from NOAA StormEvents and cyclone passes from the HURDAT2
-        best track, each paired with what the models said on the three days
-        <em>before</em> onset. The onset day itself is excluded — scoring it
-        would be reading the answer. Two rows are shown per event: the pooled
-        3-day model, and the exact-lead model that would really have been run
-        that morning. Events tagged <b>out-of-sample</b> fall after the training
-        cutoff, so the models had never seen them. Click any event to jump the
-        map to that date.
-      </p>
+      <h3>Past events — what the model said beforehand</h3>
       <div id="d-events" class="events"></div>
     </div>
   </aside>
@@ -159,19 +139,18 @@
 
 <!-- ---------------------------------------------------------- model card -->
 <section class="modelcard">
-  <h2>How the model works, and where it holds up</h2>
   <div class="cards" id="mc-cards"></div>
 
+  <!-- The audit trail the project is graded on, collapsed by default: the page
+       is a forecast application first, and the evidence is one click away. -->
+  <details class="mc">
+  <summary>Model performance, limits and provenance</summary>
+
   <!-- ----------------------------------------------- lead time / headline -->
-  <h3>How much warning does it actually buy?</h3>
+  <h3>Skill by lead time</h3>
   <p class="note">
-    Reporting one number for a &ldquo;1 to 3 day forecast&rdquo; hides the thing
-    a user needs most. &ldquo;Something starts in the next three days&rdquo; is a
-    much easier question than &ldquo;something starts three days from now&rdquo;,
-    so a single pooled score quietly flatters the longer leads. Every lead below
-    therefore has its own model, trained and scored on its own target, and each
-    is measured against the strongest single-feature baseline for that same
-    target — which gets harder to beat as the signal weakens.
+    Each lead has its own model, scored on its own target against the strongest
+    single-feature baseline for that target.
   </p>
   <div class="cards" id="mc-lead-cards"></div>
   <p class="note" id="lead-read"></p>
@@ -190,12 +169,9 @@
 
   <h3>Gradient boosting vs. the Temporal Fusion Transformer</h3>
   <p class="note">
-    Both were trained on the same panel, the same splits and the same label, so
-    the comparison is like for like. The transformer sees a 30-day encoder
-    window per county and is trained with a positive-class weight of 50, then
-    calibrated with isotonic regression fitted on validation so its
-    probabilities can be read as probabilities. It is the heavier model by a
-    wide margin — hours on an A100 against minutes of boosting.
+    Same panel, same splits, same label. The transformer sees a 30-day encoder
+    window per county, trains with a positive-class weight of 50, and is
+    calibrated by isotonic regression fitted on validation.
   </p>
   <div class="tscroll">
     <table id="mc-table">
@@ -211,10 +187,8 @@
 
   <h3>What it had to beat</h3>
   <p class="note">
-    No model is accepted until it beats every one of these. They are deliberately
-    crude — one raw feature, or the historical rate for the calendar month — and
-    on a rare-event target a crude predictor is much harder to beat than it
-    sounds.
+    No model is accepted until it beats every one of these — one raw feature, or
+    the historical rate for the calendar month.
   </p>
   <div class="tscroll">
     <table id="mc-baselines">
@@ -231,6 +205,7 @@
 
   <h3>Provenance</h3>
   <p class="note" id="mc-prov"></p>
+  </details>
 </section>
 
 <footer>

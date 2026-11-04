@@ -309,6 +309,28 @@ body { max-width: 1320px; }
             transition: width 0.25s ease; }
 #risk-expl { margin: 10px 0 0; }
 
+/* live check: official product vs model, side by side */
+.lcheck { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 8px; padding: 10px 12px; }
+.lc-row { display: grid; grid-template-columns: 74px 1fr 1fr; gap: 6px 10px;
+          align-items: start; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.lc-h { font-size: 12px; color: var(--dim); padding-top: 11px; }
+.lc-cell { display: flex; flex-direction: column; min-width: 0; }
+.lc-cell i { font-size: 10px; font-style: normal; color: var(--dim);
+             text-transform: uppercase; letter-spacing: 0.5px; }
+.lc-cell b { font-size: 14px; }
+.lc-cell u { text-decoration: none; font-size: 11px; color: var(--dim);
+             font-family: var(--mono); overflow: hidden; text-overflow: ellipsis;
+             white-space: nowrap; }
+.lc-v { grid-column: 2 / -1; font-size: 12px; font-weight: 700; color: var(--dim); }
+.lc-v.agree { color: var(--accent); }
+.lc-v.part { color: var(--warn-fg); }
+.lc-v.model, .lc-v.nws { color: var(--hot); }
+.lc-foot { display: flex; align-items: center; justify-content: space-between;
+           gap: 10px; padding-top: 9px; color: var(--dim); font-size: 11.5px; }
+.lc-foot b { color: var(--fg); }
+.ghost.sm { font-size: 12px; padding: 3px 9px; line-height: 1.4; }
+
 /* NWS alerts */
 .alerts p { margin: 0; }
 .alerts .ok { color: var(--dim); font-size: 13.5px; padding: 10px 12px;
@@ -386,6 +408,17 @@ body { max-width: 1320px; }
 
 /* model card */
 .modelcard { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); }
+details.mc > summary {
+  cursor: pointer; color: var(--dim); font-size: 13px; padding: 9px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  list-style: none;
+}
+details.mc > summary::-webkit-details-marker { display: none; }
+details.mc > summary::before { content: "▸ "; color: var(--accent); }
+details.mc[open] > summary::before { content: "▾ "; }
+details.mc > summary:hover { color: var(--fg); border-color: var(--accent); }
+details.mc[open] > summary { margin-bottom: 4px; }
+details.mc > h3:first-of-type { margin-top: 20px; }
 #mc-table, #mc-leads, #mc-baselines {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 10px;

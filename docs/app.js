@@ -32,6 +32,9 @@ const S = {
   mode: "live", haz: "flood", date: null, fips: null,
   geo: null, meta: null, events: null, hist: null, live: null,
   paths: new Map(), alertReq: 0, wxReq: 0,
+  // Official warnings in force now, kept in state because two panels read them:
+  // the raw list, and the live comparison against the model.
+  alerts: { state: "idle", feats: [], at: null, err: null },
 };
 
 // ------------------------------------------------------------------ data
@@ -168,18 +171,14 @@ function render() {
   paintMap(byFips);
 
   el("date-note").innerHTML = S.mode === "live"
-    ? `Showing <b>${dayName(S.date)}</b> — scored from the live Open-Meteo
-       forecast pulled ${hoursAgo(S.live.generated)} h ago, covering
-       ${S.live.n_counties} counties.`
-    : `Showing <b>${dayName(S.date)}</b> — scored from observed station
-       rainfall. Past days are available around every recorded flood episode and
-       cyclone pass in the event list, and for the last 60 observed days
-       (through ${S.meta.observed_through}).`;
+    ? `<b>${dayName(S.date)}</b> — live forecast, pulled ${
+        hoursAgo(S.live.generated)} h ago.`
+    : `<b>${dayName(S.date)}</b> — observed rainfall, through ${
+        S.meta.observed_through}.`;
 
   el("map-foot").textContent =
-    `${rows.length} counties scored on this date, of ${S.meta.n_counties_mapped} ` +
-    `drawn. Shading is relative: "High" means this county-day sits in the top 1% ` +
-    `of all county-days, not that a disaster is likely.`;
+    `${rows.length} of ${S.meta.n_counties_mapped} counties scored. ` +
+    `"High" means the top 1% of all county-days, not that a disaster is likely.`;
 
   const top = rows.slice().sort((a, b) => b[S.haz] - a[S.haz]).slice(0, 12);
   el("top-table").querySelector("tbody").innerHTML = top.map((r, i) => {
@@ -207,6 +206,7 @@ const hoursAgo = (iso) => Math.max(0, Math.round((Date.now() - Date.parse(iso)) 
 function selectCounty(fips) {
   if (!county(fips)) return;
   S.fips = fips;
+  S.alerts = { state: "loading", feats: [], at: null, err: null };
   el("detail-empty").classList.add("hidden");
   el("detail-body").classList.remove("hidden");
   el("county-pick").value = fips;
@@ -230,19 +230,13 @@ function paintDetail(r) {
 
   if (!c[4]) {
     el("d-outcome").innerHTML = MODELLED_STATES.has(c[1])
-      ? `<div class="outcome none">No weather station in this county in the
-         source data, so the model produces no risk for it. The live weather and
-         official warnings below are still real.</div>`
-      : `<div class="outcome none">Risk modelling currently covers the five Gulf
-         states; ${c[1]} is outside it. The live weather and official warnings
-         below are real and work nationwide.</div>`;
+      ? `<div class="outcome none">No weather station here in the source data, so
+         no risk is modelled. Live weather and warnings below are real.</div>`
+      : `<div class="outcome none">Risk modelling covers the five Gulf states;
+         ${c[1]} is outside it. Live weather and warnings work nationwide.</div>`;
   } else if (!r) {
     el("d-outcome").innerHTML =
-      `<div class="outcome none">No model risk exported for this date. Risk
-       ships only around the events listed below and for the last 60 observed
-       days, to keep the download small. Some counties also have multi-year gaps
-       in their rainfall record, and no features can be built for those
-       days.</div>`;
+      `<div class="outcome none">No risk exported for this date.</div>`;
   } else if (S.mode === "history" && (r.floodActive || r.stormActive)) {
     const both = r.floodActive && r.stormActive;
     const what = both
@@ -250,9 +244,8 @@ function paintDetail(r) {
       : r.floodActive ? "A recorded flood episode was"
                       : "A recorded cyclone pass was";
     el("d-outcome").innerHTML =
-      `<div class="outcome hit">${what} in progress here on this date. That is
-       observed ground truth, not a prediction — use it to check what the model
-       said going in.</div>`;
+      `<div class="outcome hit">${what} in progress here on this date —
+       observed, not predicted.</div>`;
   } else {
     el("d-outcome").innerHTML = "";
   }
@@ -269,15 +262,13 @@ function paintDetail(r) {
   }
 
   el("risk-expl").innerHTML = r
-    ? `These are probabilities that a NOAA-recorded flood episode or a HURDAT2
-       cyclone pass <b>begins</b> in this county within the next
-       ${S.meta.horizon_days} days. The base rate is
+    ? `Chance of onset within ${S.meta.horizon_days} days. A normal day is
        ${pct(S.meta.flood.test_prevalence, 3)} for floods and
-       ${pct(S.meta.storm.test_prevalence, 3)} for cyclones, so a few percent is
-       already tens of times a normal day — the band label is the number to read,
-       not the raw percentage.`
+       ${pct(S.meta.storm.test_prevalence, 3)} for cyclones, so read the band,
+       not the percentage.`
     : "";
 
+  liveCheck();
   leadBlock(r);
   eventList(fips);
 }
@@ -323,11 +314,10 @@ function eventList(fips) {
   const evs = S.events[fips] || [];
   if (!evs.length) {
     el("d-events").innerHTML = MODELLED_STATES.has(county(fips)[1])
-      ? `<p class="quiet">No flood episodes or cyclone passes on record for this
-         county in ${S.meta.splits.train[0]}&ndash;${S.meta.observed_through.slice(0, 4)}.</p>`
-      : `<p class="quiet">Event history is loaded for the five Gulf states only,
-         so none is listed here. This county may still have flood episodes and
-         cyclone passes on record.</p>`;
+      ? `<p class="quiet">Nothing on record for this county in
+         ${S.meta.splits.train[0]}&ndash;${S.meta.observed_through.slice(0, 4)}.</p>`
+      : `<p class="quiet">Event history is loaded for the five Gulf states
+         only.</p>`;
     return;
   }
   el("d-events").innerHTML = evs.map((e) => `
@@ -403,11 +393,8 @@ function verdict(e) {
         ? `<span class="vs-split" title="${SPLIT_NOTE[e.split][1]}">${
             SPLIT_NOTE[e.split][0]}</span>` : ""}
     </div><div class="vs-col"><div class="vs-real">None of the three days before
-      onset are in this county's rainfall record, so no features could be built
-      and the models were never asked. ${S.meta.coverage.events_listed
-        - S.meta.coverage.events_listed_with_leadup} of the
-      ${fmtInt(S.meta.coverage.events_listed)} listed events are in this
-      position.</div></div></div>`;
+      onset are in this county's rainfall record, so the models were never
+      asked.</div></div></div>`;
   }
   const hazards = Object.keys(e.pre);
   const rows = hazards.map((haz) =>
@@ -460,24 +447,47 @@ function gotoDate(iso) {
 
 // ------------------------------------------------- live warnings (NWS)
 
-async function loadAlerts(fips) {
+/* Active alerts are pulled per state and filtered on the county's SAME code.
+ * A point query against the county centroid was the obvious approach and is
+ * wrong: warning polygons are drawn around rivers and coastlines, so a product
+ * issued for the whole county routinely misses its centroid. SAME is an exact
+ * county match, which is the unit this dashboard reports in. */
+const ALERT_TTL = 3e5;
+const alertCache = new Map();
+
+async function stateAlerts(st, force) {
+  if (force) alertCache.delete(st);
+  const hit = alertCache.get(st);
+  if (hit && Date.now() - hit.at < ALERT_TTL) return hit.feats;
+  const res = await fetch(`https://api.weather.gov/alerts/active?area=${st}`,
+    { headers: { Accept: "application/geo+json" } });
+  if (!res.ok) throw new Error("weather.gov " + res.status);
+  const feats = (await res.json()).features || [];
+  alertCache.set(st, { at: Date.now(), feats });
+  return feats;
+}
+
+async function loadAlerts(fips, force) {
   const c = county(fips);
   const box = el("d-alerts");
   box.innerHTML = `<p class="quiet">Loading from weather.gov&hellip;</p>`;
   const req = ++S.alertReq;
+  S.alerts = { state: "loading", feats: [], at: null, err: null };
+  liveCheck();
   try {
-    const url = `https://api.weather.gov/alerts/active?point=${
-      c[2].toFixed(4)},${c[3].toFixed(4)}`;
-    const res = await fetch(url, { headers: { Accept: "application/geo+json" } });
-    if (!res.ok) throw new Error("weather.gov " + res.status);
-    const js = await res.json();
+    const all = await stateAlerts(c[1], force);
     if (req !== S.alertReq) return;
-    const fs = js.features || [];
+    const same = "0" + fips;
+    const fs = all.filter((f) => {
+      const g = (f.properties && f.properties.geocode) || {};
+      return (g.SAME || []).includes(same);
+    });
+    S.alerts = { state: "ok", feats: fs, at: Date.now(), err: null };
+    liveCheck();
     if (!fs.length) {
       box.innerHTML =
         `<p class="ok">No active National Weather Service warnings for this
-         location right now. This is a real query against weather.gov, made
-         when you clicked the county.</p>`;
+         location right now.</p>`;
       return;
     }
     box.innerHTML = fs.slice(0, 6).map((f) => {
@@ -494,8 +504,114 @@ async function loadAlerts(fips) {
     }).join("");
   } catch (e) {
     if (req !== S.alertReq) return;
+    S.alerts = { state: "err", feats: [], at: Date.now(), err: e.message };
+    liveCheck();
     box.innerHTML = `<p class="warn">Could not reach weather.gov (${e.message}).</p>`;
   }
+}
+
+// ------------------------------------------- live check: official vs model
+
+/* The "actual" side of this comparison is the National Weather Service product
+ * in force right now — the only live hazard call for a county that is
+ * authoritative. A probability and a warning are not the same kind of object,
+ * so both sides are mapped onto one 0-3 action ladder; that is what makes them
+ * comparable at all, and the raw values stay visible underneath. */
+const OFFICIAL = ["none", "Advisory", "Watch", "Warning"];
+const HAZ_RE = {
+  flood: /flood|hydrolog/i,
+  storm: /hurricane|tropical|storm surge|typhoon/i,
+};
+// Band 0-4 -> ladder 0-3. "Normal" and "slightly raised" are both no-call, and
+// the model's flag threshold stays the top-1% band used to score past events.
+const MODEL_LADDER = [0, 0, 1, 2, 3];
+
+/** Strongest active NWS product for this hazard, on the same 0-3 ladder. */
+function officialFor(haz) {
+  let lv = 0, name = null;
+  for (const f of S.alerts.feats) {
+    const ev = (f.properties && f.properties.event) || "";
+    if (!HAZ_RE[haz].test(ev)) continue;
+    const r = /warning/i.test(ev) ? 3 : /watch/i.test(ev) ? 2 : 1;
+    if (r > lv) { lv = r; name = ev; }
+  }
+  return { lv, name };
+}
+
+/* One rung apart is not a disagreement worth shouting about: "elevated with no
+ * advisory out" is the normal state of a rare-event model. Only a gap of two or
+ * more rungs, or a side at zero against a watch or warning, is called out. */
+function compare(m, o) {
+  if (m === o) return ["agree", m ? "Agree" : "Agree — neither flags it"];
+  if (o === 0) return m >= 2 ? ["model", "Model only — nothing official out"]
+                             : ["part", "Model slightly ahead"];
+  if (m === 0) return o >= 2 ? ["nws", "Official only — model does not flag it"]
+                             : ["part", "Official slightly ahead"];
+  return m > o ? ["part", "Model hotter"] : ["part", "Official hotter"];
+}
+
+/** First live day: the one the model is actually being asked about right now. */
+const liveToday = () => Object.keys(S.live.days).sort()[0];
+
+function lcCell(label, value, sub, colour) {
+  return `<span class="lc-cell"><i>${label}</i>
+    <b${colour ? ` style="color:${colour}"` : ""}>${value}</b>
+    <u>${sub}</u></span>`;
+}
+
+/* Rendered on selection and again when the warning feed lands, so the model
+ * side appears immediately and the official side fills in. */
+function liveCheck() {
+  const box = el("d-live");
+  const fips = S.fips;
+  if (!box || !fips) return;
+  const c = county(fips);
+  const day = liveToday();
+  const row = c[4]
+    ? (S.live.days[day] || []).map(rowObj).find((r) => r.fips === fips)
+    : null;
+  const pending = S.alerts.state === "loading" || S.alerts.state === "idle";
+
+  const rows = ["flood", "storm"].map((haz) => {
+    const p = row ? row[haz] : null;
+    const band = p == null ? null : level(p, haz);
+    const mLv = band == null ? null : MODEL_LADDER[band];
+    const model = band == null
+      ? lcCell("this model", "no risk", "county not modelled", null)
+      : lcCell("this model", BANDS[band], pct(p), RAMP[band]);
+
+    let official, verdict;
+    if (pending) {
+      official = lcCell("NWS now", "&hellip;", "checking weather.gov", null);
+      verdict = `<span class="lc-v">&nbsp;</span>`;
+    } else if (S.alerts.state === "err") {
+      official = lcCell("NWS now", "—", "feed unreachable", null);
+      verdict = `<span class="lc-v">no comparison</span>`;
+    } else {
+      const o = officialFor(haz);
+      official = lcCell("NWS now", o.lv ? OFFICIAL[o.lv] : "none",
+        o.name || "nothing in force", o.lv ? RAMP[o.lv + 1] : null);
+      if (mLv == null) {
+        verdict = `<span class="lc-v">no model side</span>`;
+      } else {
+        const [cls, text] = compare(mLv, o.lv);
+        verdict = `<span class="lc-v ${cls}">${text}</span>`;
+      }
+    }
+    return `<div class="lc-row">
+      <span class="lc-h">${HAZ_LABEL[haz]}</span>${model}${official}${verdict}
+    </div>`;
+  }).join("");
+
+  const checked = S.alerts.at
+    ? new Date(S.alerts.at).toLocaleTimeString() : "—";
+  box.innerHTML = rows + `<div class="lc-foot">
+    <span>Model: <b>${dayName(day)}</b>, scored ${
+      hoursAgo(S.live.generated)} h ago. Official: checked ${checked}, re-checked
+      every 5 minutes.</span>
+    <button id="lc-refresh" class="ghost sm">Refresh</button>
+  </div>`;
+  el("lc-refresh").addEventListener("click", () => loadAlerts(fips, true));
 }
 
 // ------------------------------------------------ weather (Open-Meteo)
@@ -522,8 +638,7 @@ async function loadWeather(fips) {
     const days = Object.keys(cached).sort();
     box.innerHTML = days.map((d) => card(d, cached[d])).join("") +
       `<p class="note">Open-Meteo forecast, pulled ${
-        hoursAgo(S.live.generated)} h ago — the same numbers the model was
-        scored on.</p>`;
+        hoursAgo(S.live.generated)} h ago — what the model was scored on.</p>`;
     return;
   }
 
@@ -551,8 +666,8 @@ async function loadWeather(fips) {
       gust: d.wind_gusts_10m_max[i],
     })).join("") +
       `<p class="note">${past
-        ? "Open-Meteo ERA5 reanalysis — what actually happened on these days."
-        : "Open-Meteo forecast."} Queried live when you clicked.</p>`;
+        ? "Open-Meteo ERA5 reanalysis — what actually happened."
+        : "Open-Meteo forecast."}</p>`;
   } catch (e) {
     if (req !== S.wxReq) return;
     box.innerHTML = `<p class="warn">Could not reach Open-Meteo (${e.message}).</p>`;
@@ -613,25 +728,18 @@ function leadCards() {
      ${f2.xgb_ap.toFixed(4)} → ${f3.xgb_ap.toFixed(4)} across +1, +2 and +3
      days; hurricane runs ${s1.xgb_ap.toFixed(4)} → ${s2.xgb_ap.toFixed(4)} →
      ${s3.xgb_ap.toFixed(4)}. The transformer is monotone on hurricanes but not
-     on floods, where its +2 model (${f2.tft_ap.toFixed(4)}) lands above its +1
-     model (${f1.tft_ap.toFixed(4)}) — six independent fits of a
-     high-variance model on a rare target do not order themselves perfectly,
-     and that inversion is left visible rather than smoothed. The margin over
-     baseline does <em>not</em> decay neatly either, because the baseline is
-     losing signal at the same time: at +3 days the single-feature flood
-     baseline collapses to ${f3.baseline_ap.toFixed(4)} from
-     ${f2.baseline_ap.toFixed(4)} at +2, which is why the ratio goes back up
-     while the underlying skill keeps falling. Read the average-precision
-     columns for how good the forecast is and the ratio columns only for
-     whether the model is earning its complexity.`;
+     on floods, where its +2 fit (${f2.tft_ap.toFixed(4)}) lands above its +1
+     fit (${f1.tft_ap.toFixed(4)}); that inversion is left visible rather than
+     smoothed. The ratio to baseline does not decay neatly, because the baseline
+     is losing signal at the same time — read average precision for forecast
+     quality and the ratio only for whether the complexity is earned.`;
 
   el("lead-foot").innerHTML =
-    `Base rate is the share of test county-days where onset falls on exactly that
-     day, so it is roughly a third of the pooled rate and barely moves with lead.
-     Every cell is average precision on the ${S.meta.splits.test[0]}&ndash;${
-       S.meta.splits.test[1]} test years, which no model saw in training or
-     selection. Green marks the better of the two architectures at that lead:
-     XGBoost takes ${leadRows().filter((r) => r.xgb_ap >= r.tft_ap).length} of
+    `Base rate is the share of test county-days with onset on exactly that day.
+     Every cell is average precision on ${S.meta.splits.test[0]}&ndash;${
+       S.meta.splits.test[1]}, unseen in training and selection. Green marks the
+     better architecture at that lead: XGBoost takes ${
+       leadRows().filter((r) => r.xgb_ap >= r.tft_ap).length} of
      ${leadRows().length}.`;
 }
 
@@ -685,25 +793,19 @@ function modelCard() {
   const fr = m.flood.test_ap / m.flood.tft.test_ap;
   const sr = m.storm.test_ap / m.storm.tft.test_ap;
   el("mc-verdict").innerHTML =
-    `<b>Gradient boosting wins both hazards, and the dashboard therefore serves
-     XGBoost.</b> On floods the gap is narrow —
-     ${m.flood.test_ap.toFixed(4)} against ${m.flood.tft.test_ap.toFixed(4)},
-     a ${fr.toFixed(2)}× edge — close enough that the transformer is a credible
-     alternative. On hurricanes it is not close: ${m.storm.test_ap.toFixed(4)}
-     against ${m.storm.tft.test_ap.toFixed(4)}, a ${sr.toFixed(2)}× edge, and the
-     transformer clears its baseline by only
-     ${m.storm.tft.vs_best_baseline.toFixed(2)}×. The likely reason is sample
-     size rather than architecture: hurricane onset is
-     ${pct(m.storm.test_prevalence, 3)} of county-days, and a 30-day encoder
-     window per county spends most of its capacity on sequences that contain no
-     event at all. The transformer also ran
-     ${m.flood.tft.epochs_run} epochs for floods and
-     ${m.storm.tft.epochs_run} for hurricanes on an ${m.run.gpu}, against
-     seconds of boosting on the same panel, so it is the more expensive model by
-     a wide margin and it did not buy anything here. Both transformer columns are
-     post-calibration: training used a positive-class weight of 50, which
-     inflates every probability, and ${m.flood.tft.calibration.replace(/_/g, " ")}
-     puts them back on a scale that can be read as a probability.`;
+    `<b>Gradient boosting wins both hazards, so the dashboard serves XGBoost.</b>
+     Floods are close — ${m.flood.test_ap.toFixed(4)} against
+     ${m.flood.tft.test_ap.toFixed(4)}, a ${fr.toFixed(2)}× edge. Hurricanes are
+     not: ${m.storm.test_ap.toFixed(4)} against
+     ${m.storm.tft.test_ap.toFixed(4)} (${sr.toFixed(2)}×), clearing baseline by
+     only ${m.storm.tft.vs_best_baseline.toFixed(2)}×. Likely sample size rather
+     than architecture — hurricane onset is
+     ${pct(m.storm.test_prevalence, 3)} of county-days, so most 30-day encoder
+     windows contain no event. The transformer cost ${m.flood.tft.epochs_run} and
+     ${m.storm.tft.epochs_run} epochs on an ${m.run.gpu} against seconds of
+     boosting. Both transformer columns are post-calibration
+     (${m.flood.tft.calibration.replace(/_/g, " ")}), undoing the
+     positive-class weight of 50 used in training.`;
 
   const bl = [];
   for (const haz of ["flood", "storm"]) {
@@ -724,45 +826,35 @@ function modelCard() {
   const cv = m.coverage;
   el("mc-limits").innerHTML = [
     `<b>The label is an observational record, not hazard physics.</b> Flood
-     positives come from ${m.label_source.flood} — an episode exists because a
-     local Weather Service office wrote one up, so a real flood that nobody
-     reported counts as a negative. Hurricane positives come from
-     ${m.label_source.storm} and are purely geometric: the county intersected the
-     best track. A county grazed by a weak system and a county destroyed by a
-     major landfall are the same positive.`,
+     positives come from ${m.label_source.flood}, so a real flood nobody wrote
+     up counts as a negative. Hurricane positives (${m.label_source.storm}) are
+     purely geometric — a graze and a major landfall are the same positive.`,
     `<b>Training rainfall is observed, not forecast.</b> Features use station
-     rainfall over the prediction window, which a real forecaster would not have
-     on the morning the model runs. This is the single largest overstatement in
-     the project. The fix is to retrain on archived forecasts (GEFSv12
-     reforecast); until then treat every lead-time number as an upper bound.`,
+     rainfall over the prediction window, which a forecaster would not have on
+     the morning the model runs. The largest overstatement in the project; treat
+     every lead-time number as an upper bound until retrained on GEFSv12.`,
     `<b>Risk covers ${m.n_counties_modeled} of the ${m.n_counties_mapped}
-     counties on the map.</b> Training is restricted to the five Gulf states and,
-     within them, to counties with a rainfall station in the source data. Every
-     other county is drawn unshaded and serves live weather and official warnings
-     only.`,
-    `<b>No held-out-state validation in this run.</b> Earlier work measured what
-     the models give back when a whole state is removed from training; this run
-     did not repeat it, so nothing here supports a claim about counties outside
-     the Gulf Coast.`,
-    `<b>The rainfall record has holes.</b> The panel spans
-     ${fmtInt(cv.calendar_days)} calendar days and the median county has
-     ${fmtInt(cv.median_days_per_county)} of them, but the worst has
-     ${fmtInt(cv.min_days_per_county)} and ${cv.counties_under_80pct} counties
-     fall below 80%. ${fmtInt(cv.events_listed - cv.events_listed_with_leadup)}
-     of the ${fmtInt(cv.events_listed)} listed events have no day of their
-     three-day lead-up in the record, so no model reading exists for them.`,
-    `<b>Hurricane labels stop at ${m.label_end.storm}.</b> The HURDAT2 best track
-     is finalised a season behind, so hurricane metrics are scored on
-     ${m.splits.test[0]}–${m.label_end.storm} while flood metrics use the full
-     test window. The two hazards' test sets are not the same size.`,
+     counties on the map.</b> Five Gulf states only, and within them only
+     counties with a rainfall station in the source data.`,
+    `<b>No held-out-state validation in this run.</b> Nothing here supports a
+     claim about counties outside the Gulf Coast.`,
+    `<b>The rainfall record has holes.</b> The median county has
+     ${fmtInt(cv.median_days_per_county)} of ${fmtInt(cv.calendar_days)}
+     calendar days, the worst ${fmtInt(cv.min_days_per_county)}, and
+     ${cv.counties_under_80pct} counties fall below 80%.
+     ${fmtInt(cv.events_listed - cv.events_listed_with_leadup)} of
+     ${fmtInt(cv.events_listed)} listed events have no lead-up in the record.`,
+    `<b>Hurricane labels stop at ${m.label_end.storm}.</b> HURDAT2 is finalised a
+     season behind, so hurricane metrics score
+     ${m.splits.test[0]}–${m.label_end.storm} while floods use the full test
+     window. The two test sets are not the same size.`,
     `<b>No soil moisture, no river gauges.</b> Antecedent wetness is proxied by
      30-, 60- and 90-day rainfall, a weak substitute for catchment state.`,
-    `<b>No hurricane wind field.</b> Hurricane risk is driven by rainfall and
-     season; track forecast, intensity and storm surge are absent entirely.`,
+    `<b>No hurricane wind field.</b> Track forecast, intensity and storm surge
+     are absent entirely.`,
     `<b>Only ${fmtInt(m.flood.n_test_pos)} flood and
-     ${fmtInt(m.storm.n_test_pos)} hurricane onsets in the test period.</b>
-     Confidence intervals on every metric on this page are correspondingly wide,
-     and none are reported.`,
+     ${fmtInt(m.storm.n_test_pos)} hurricane onsets in test.</b> Confidence
+     intervals are correspondingly wide, and none are reported.`,
   ].map((s) => `<li>${s}</li>`).join("");
 
   const r = m.run;
@@ -776,25 +868,18 @@ function modelCard() {
          + "contributed to a reported number."
        : "Warning: the run reports external parents, so some numbers depend on "
          + "files outside it."}
-     It was trained on a panel with sha256
-     <code>${r.panel_sha256.slice(0, 16)}…</code>; the copy that produced this
-     dashboard hashes identically, and each of the eight boosters was reloaded
-     and confirmed to reproduce its recorded test average precision to five
-     decimals before export. Dashboard payload exported ${m.generated}.`;
+     Panel sha256 <code>${r.panel_sha256.slice(0, 16)}…</code>; the copy that
+     produced this dashboard hashes identically, and all eight boosters were
+     reloaded and confirmed to reproduce their recorded test average precision
+     to five decimals before export. Payload exported ${m.generated}.`;
 
   el("proto-banner").innerHTML =
-    `Risk is produced by XGBoost models trained on
-     ${m.splits.train[0]}–${m.splits.train[1]} station rainfall against
-     NOAA-recorded flood episodes and HURDAT2 cyclone passes across
-     ${m.n_counties_modeled} Gulf Coast counties, selected on
-     ${m.splits.val[0]}–${m.splits.val[1]} and scored on
-     ${m.splits.test[0]}–${m.splits.test[1]} — years the models never saw.
-     Weather and official warnings are fetched live from Open-Meteo and
-     weather.gov when you click a county.
-     <b>Test average precision: ${m.flood.test_ap.toFixed(3)} flood
-     (${m.flood.lift_over_prevalence.toFixed(0)}× the base rate),
-     ${m.storm.test_ap.toFixed(3)} hurricane
-     (${m.storm.lift_over_prevalence.toFixed(0)}×).</b>`;
+    `XGBoost on ${m.n_counties_modeled} Gulf Coast counties · test average
+     precision <b>${m.flood.test_ap.toFixed(3)}</b> flood
+     (${m.flood.lift_over_prevalence.toFixed(0)}× base rate),
+     <b>${m.storm.test_ap.toFixed(3)}</b> hurricane
+     (${m.storm.lift_over_prevalence.toFixed(0)}×) on
+     ${m.splits.test[0]}–${m.splits.test[1]}, unseen in training.`;
 
   el("ft-prov").textContent =
     `Risk: ${m.flood.model} at ${m.horizon_days}-day lead, run ${m.run.run_id}, ` +
@@ -846,6 +931,10 @@ function wire() {
 
   el("d-close").addEventListener("click", clearCounty);
   el("county-pick").addEventListener("change", (e) => selectCounty(e.target.value));
+
+  // Warnings are issued and cancelled on no schedule, so the official side of
+  // the comparison is re-pulled while a county stays open.
+  setInterval(() => { if (S.fips) loadAlerts(S.fips, true); }, ALERT_TTL);
 }
 
 function fillPicker() {
