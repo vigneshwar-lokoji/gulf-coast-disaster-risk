@@ -9,13 +9,19 @@ window is trivially predictable from yesterday's label.
 Writes artifacts/daily_panel.parquet.
 """
 
+import os
+
 import numpy as np
 import pandas as pd
 
+import labels
 from config import DATA_DIR, FILES, DROP_INCIDENT_TYPES, STORM_TYPES, OUT_DIR
 
-START = 2010
-CLIM_YEARS = (2010, 2018)  # frozen; never sees val/test distribution
+START = int(os.environ.get("PANEL_START", 2010))
+# Frozen; never sees val/test distribution. Defaults to the first nine years of
+# whatever window is being built, so widening START does not silently leak a
+# later period into the anomaly baseline.
+CLIM_YEARS = (START, int(os.environ.get("PANEL_CLIM_END", START + 8)))
 HORIZON = 3  # predict an incident beginning within the next N days
 
 
@@ -152,43 +158,28 @@ def fema_events():
     )
 
 
-def add_labels(d, ev):
-    """Active-window labels, plus 'incident begins within next HORIZON days'."""
-    d = d.copy()
-    for c in ("flood_active", "storm_active", "flood_onset", "storm_onset"):
-        d[c] = 0
+def add_labels(d, sources):
+    """Mark event onsets, then target 'an event begins in [t+1, t+HORIZON]'.
 
-    idx = pd.MultiIndex.from_frame(d[["county_fips", "DATE"]])
-    pos = pd.Series(np.arange(len(d)), index=idx)
-
-    for r in ev.itertuples(index=False):
-        days = pd.date_range(r.begin.normalize(), max(r.end, r.begin).normalize(), freq="D")
-        try:
-            rows = pos.loc[[(r.county_fips, t) for t in days]].to_numpy()
-        except KeyError:
-            rows = np.array(
-                [pos.get((r.county_fips, t), -1) for t in days]
-            )
-            rows = rows[rows >= 0]
-        if len(rows) == 0:
-            continue
-        if r.is_flood:
-            d.iloc[rows, d.columns.get_loc("flood_active")] = 1
-            d.iloc[rows[0], d.columns.get_loc("flood_onset")] = 1
-        if r.is_storm:
-            d.iloc[rows, d.columns.get_loc("storm_active")] = 1
-            d.iloc[rows[0], d.columns.get_loc("storm_onset")] = 1
-
-    # Target: does an incident begin in [t+1, t+HORIZON]?
+    Only the begin date matters for the target, so the intervals never need
+    expanding to individual days. `sources` maps a label name to a frame of
+    county_fips / begin, and each one produces {name}_onset and y_{name}.
+    """
     d = d.sort_values(["county_fips", "DATE"]).reset_index(drop=True)
-    for haz in ("flood", "storm"):
-        g = d.groupby("county_fips", sort=False)[f"{haz}_onset"]
-        d[f"y_{haz}"] = (
-            g.transform(
-                lambda s: s.shift(-1).rolling(HORIZON, min_periods=1).max()
-            )
-            .fillna(0)
-            .astype("int8")
+
+    for name, ev in sources.items():
+        col = f"{name}_onset"
+        onset = (ev[["county_fips", "begin"]].dropna().drop_duplicates()
+                 .assign(**{col: np.int8(1)})
+                 .rename(columns={"begin": "DATE"}))
+        onset["DATE"] = pd.to_datetime(onset["DATE"]).dt.normalize()
+        d = d.merge(onset, on=["county_fips", "DATE"], how="left")
+        d[col] = d[col].fillna(0).astype("int8")
+
+        g = d.groupby("county_fips", sort=False)[col]
+        d[f"y_{name}"] = (
+            g.transform(lambda s: s.shift(-1).rolling(HORIZON, min_periods=1).max())
+            .fillna(0).astype("int8")
         )
     return d
 
@@ -206,20 +197,48 @@ def main():
     d = d.merge(static_covariates(), on="county_fips", how="inner")
 
     print("labels ...", flush=True)
-    ev = fema_events()
-    print(f"  {len(ev):,} county-incidents")
-    d = add_labels(d, ev)
+    counties = d.groupby("county_fips", as_index=False)[["lat", "lon"]].first()
+    end_year = int(d["DATE"].dt.year.max())
+
+    noaa = labels.noaa_flood_events(DATA_DIR / FILES["stormevents"],
+                                    set(counties["county_fips"]), START, end_year)
+    hurr = labels.hurdat_events(DATA_DIR / FILES["hurdat2"], counties,
+                                START, end_year)
+    fema = fema_events()
+    print(f"  noaa flood : {len(noaa):,} county-events, "
+          f"{noaa['EPISODE_ID'].nunique():,} episodes")
+    print(f"  hurdat2    : {len(hurr):,} county-intervals, "
+          f"{hurr['storm_id'].nunique()} storms")
+    print(f"  fema       : {len(fema):,} county-incidents (secondary target)")
+
+    hurr_last = int(hurr["begin"].dt.year.max())
+    if hurr_last < end_year:
+        # HURDAT2 is only published after NHC finalises a season, so the most
+        # recent year carries no hurricane labels at all. Scoring y_storm over
+        # those years would count every county-day as a correct negative.
+        print(f"  WARNING: hurricane labels end {hurr_last}, panel ends "
+              f"{end_year}. Cap the y_storm test window at {hurr_last}.")
+
+    d = add_labels(d, {
+        "flood": noaa,                              # primary hazard label
+        "storm": hurr,                              # primary hazard label
+        "fema_flood": fema[fema["is_flood"] == 1],   # secondary: costly events
+        "fema_storm": fema[fema["is_storm"] == 1],
+    })
 
     # Drop the warm-up period where antecedent windows are incomplete.
     d = d[d["DATE"] >= pd.Timestamp(f"{START}-04-01")]
     d = d[d["prcp"].notna() | d["prcp_prev30"].notna()]
 
     print(f"\npanel: {d.shape[0]:,} rows x {d.shape[1]} cols")
-    for haz in ("flood", "storm"):
-        print(f"  y_{haz}: {d[f'y_{haz}'].mean()*100:.3f}%  ({int(d[f'y_{haz}'].sum()):,} positives)")
+    for haz in ("flood", "storm", "fema_flood", "fema_storm"):
+        c = d[f"y_{haz}"]
+        print(f"  y_{haz:11s}: {c.mean()*100:.3f}%  ({int(c.sum()):,} positives)")
 
     d.to_parquet(OUT_DIR / "daily_panel.parquet", index=False)
-    ev.to_parquet(OUT_DIR / "fema_events.parquet", index=False)
+    fema.to_parquet(OUT_DIR / "fema_events.parquet", index=False)
+    noaa.to_parquet(OUT_DIR / "noaa_flood_events.parquet", index=False)
+    hurr.to_parquet(OUT_DIR / "hurdat_events.parquet", index=False)
     print(f"\nwrote {OUT_DIR/'daily_panel.parquet'}")
 
 
