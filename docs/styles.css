@@ -351,13 +351,55 @@ body { max-width: 1320px; }
 .pill.storm { background: var(--pill-yes-bg); color: var(--pill-yes-fg); }
 .pill.both { background: var(--warn-bg); color: var(--warn-fg); }
 
+/* forecast-vs-outcome block under each event */
+.evt-wrap { display: flex; flex-direction: column; }
+.evt-wrap .evt { border-radius: 8px 8px 0 0; border-bottom: none; }
+.vs { border: 1px solid var(--line); border-top: none; border-radius: 0 0 8px 8px;
+      border-left-width: 3px; padding: 9px 11px; display: flex;
+      flex-direction: column; gap: 8px; background: var(--panel); }
+.vs-hit { border-left-color: var(--accent); }
+.vs-miss { border-left-color: var(--hot); }
+.vs-head { display: flex; align-items: center; gap: 8px; }
+.vs-flag { font-size: 12px; font-weight: 700; }
+.vs-hit .vs-flag { color: var(--accent); }
+.vs-miss .vs-flag { color: var(--hot); }
+.vs-split { font-size: 11px; padding: 1px 7px; border-radius: 10px;
+            background: var(--panel2); color: var(--dim); cursor: help;
+            border: 1px solid var(--line); }
+.vs-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+          color: var(--dim); margin-bottom: 4px; }
+.lead-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+            margin-bottom: 3px; }
+.lead-h { font-size: 12px; color: var(--dim); min-width: 148px; }
+.lead-d { display: inline-flex; flex-direction: column; align-items: center;
+          min-width: 46px; }
+.lead-d b { font-family: var(--mono); font-size: 12.5px; }
+.lead-d i { font-size: 10px; color: var(--dim); font-style: normal; }
+.lead-pk { font-size: 12px; font-weight: 700; margin-left: auto; }
+.vs-rain, .vs-real { font-size: 12.5px; color: var(--dim); }
+
+/* Exact-lead block in the detail panel. Same row primitives as the event
+   lead-up, boxed so it reads as its own answer rather than a footnote. */
+.leadblock { background: var(--panel); border: 1px solid var(--line);
+             border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+.leadblock .lead-row:last-child { margin-bottom: 0; }
+
 /* model card */
 .modelcard { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); }
-#mc-table, #mc-states, #mc-years {
+#mc-table, #mc-leads, #mc-baselines {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 10px;
 }
-#mc-table code { font-family: var(--mono); font-size: 12px; }
+#mc-table code, #mc-baselines code, #mc-leads code {
+  font-family: var(--mono); font-size: 12px;
+}
+/* The lead sweep is eight columns wide and cannot usefully be narrowed, so the
+   wide tables scroll inside their own box rather than dragging the whole page
+   sideways on a phone. The wrapper scrolls, not the table itself: making the
+   table a block would break header-to-body column alignment. */
+.tscroll { overflow-x: auto; margin-bottom: 10px; }
+.tscroll table { min-width: 580px; margin-bottom: 0; }
+.tscroll #mc-leads { min-width: 700px; }
 td.bad { color: var(--hot); }
 td.good { color: var(--accent); }
 .dim { color: var(--dim); font-weight: 400; }
